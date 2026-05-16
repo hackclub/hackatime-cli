@@ -250,6 +250,39 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
       -
+        name: Resolve source branch
+        id: source-branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest_branch="${GITHUB_REF#refs/heads/}"
+          source_branch="misc/${GITHUB_SHA:0:12}"
+          if [[ "$dest_branch" == "release" ]]; then
+            source_branch="develop"
+          fi
+          echo "Using source branch ${source_branch} for semver calculation"
+          echo "source_branch=${source_branch}" >> "$GITHUB_OUTPUT"
+      -
+        name: Prepare semver source commit
+        shell: bash
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          SOURCE_BRANCH: ${{ steps.source-branch.outputs.source_branch }}
+        run: |
+          set -euo pipefail
+          parents=()
+          while read -r parent; do
+            if [[ -n "$parent" ]]; then
+              parents+=(-p "$parent")
+            fi
+          done < <(git show -s --format=%P HEAD | tr ' ' '\n')
+          # semver-action only reads source branches from merge commit messages.
+          sha="$(git commit-tree HEAD^{tree} "${parents[@]}" -m "Merge pull request #0 from ${GITHUB_REPOSITORY_OWNER}/${SOURCE_BRANCH}")"
+          git replace "$GITHUB_SHA" "$sha"
+      -
         name: Calculate semver tag
         id: semver-tag
         uses: alanhamlett/semver-action@master
