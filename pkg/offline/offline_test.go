@@ -223,7 +223,7 @@ func TestWithQueue_ApiError(t *testing.T) {
 
 	require.Len(t, stored, 2)
 
-	assert.Equal(t, "1592868367.219124-12-file-undefined-wakatime-cli-heartbeat-/tmp/main.go-true", stored[0].ID)
+	assert.Equal(t, "1592868367.219124-12-file-undefined-hackatime-cli-heartbeat-/tmp/main.go-true", stored[0].ID)
 	assert.JSONEq(t, string(dataGo), stored[0].Heartbeat)
 
 	assert.Equal(t, "1592868386.079084-13-file-debugging-wakatime-summary-/tmp/main.py-false", stored[1].ID)
@@ -403,7 +403,7 @@ func TestWithSync(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-12-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-12-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -569,7 +569,7 @@ func TestSync_APIError(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-12-file-undefined-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-12-file-undefined-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -623,7 +623,7 @@ func TestSync_APIError(t *testing.T) {
 
 	require.Len(t, stored, 2)
 
-	assert.Equal(t, "1592868367.219124-12-file-undefined-wakatime-cli-heartbeat-/tmp/main.go-true", stored[0].ID)
+	assert.Equal(t, "1592868367.219124-12-file-undefined-hackatime-cli-heartbeat-/tmp/main.go-true", stored[0].ID)
 	assert.JSONEq(t, string(dataGo), stored[0].Heartbeat)
 
 	assert.Equal(t, "1592868386.079084-13-file-debugging-wakatime-summary-/tmp/main.py-false", stored[1].ID)
@@ -653,7 +653,7 @@ func TestSync_APIErrorBulkNested(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-12-file-undefined-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-12-file-undefined-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -752,7 +752,7 @@ func TestSync_InvalidResults(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -865,7 +865,7 @@ func TestSync_SyncLimit(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -1025,7 +1025,7 @@ func TestSync_SyncUnlimited(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -1249,7 +1249,7 @@ func TestCountHeartbeats(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: "heartbeat_go",
 		},
 		{
@@ -1302,7 +1302,7 @@ func TestReadHeartbeats(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -1338,7 +1338,7 @@ func TestReadHeartbeats_WithLimit(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -1455,7 +1455,7 @@ func TestQueue_PopMany(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "test_bucket", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -1515,7 +1515,7 @@ func TestQueue_PushMany(t *testing.T) {
 	require.NoError(t, err)
 
 	insertHeartbeatRecord(t, db, "test_bucket", heartbeatRecord{
-		ID:        "1592868367.219124-1-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+		ID:        "1592868367.219124-1-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 		Heartbeat: string(dataGo),
 	})
 
@@ -1566,7 +1566,7 @@ func TestQueue_PushMany(t *testing.T) {
 
 	assert.Len(t, stored, 3)
 
-	assert.Equal(t, "1592868367.219124-1-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true", stored[0].ID)
+	assert.Equal(t, "1592868367.219124-1-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true", stored[0].ID)
 	assert.JSONEq(t, string(dataGo), stored[0].Heartbeat)
 
 	assert.Equal(t, "1592868386.079084-13-file-debugging-wakatime-summary-/tmp/main.py-false", stored[1].ID)
@@ -1641,7 +1641,7 @@ func TestQueue_ReadMany(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "test_bucket", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -1689,7 +1689,7 @@ func TestQueue_ReadMany(t *testing.T) {
 
 	assert.Len(t, stored, 3)
 
-	assert.Equal(t, "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true", stored[0].ID)
+	assert.Equal(t, "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true", stored[0].ID)
 	assert.Equal(t, "1592868386.079084-file-debugging-wakatime-summary-/tmp/main.py-false", stored[1].ID)
 	assert.Equal(t, "1592868394.084354-file-building-wakatime-todaygoal-/tmp/main.js-false", stored[2].ID)
 
@@ -1881,7 +1881,7 @@ func testHeartbeats() []heartbeat.Heartbeat {
 			Language:       heartbeat.PointerTo("Go"),
 			LineNumber:     heartbeat.PointerTo(42),
 			Lines:          heartbeat.PointerTo(100),
-			Project:        heartbeat.PointerTo("wakatime-cli"),
+			Project:        heartbeat.PointerTo("hackatime-cli"),
 			Time:           1592868367.219124,
 			UserAgent:      "wakatime/13.0.6",
 		},

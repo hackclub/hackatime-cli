@@ -1,4 +1,4 @@
-This PR adds new feature to wakatime-cli
+This PR adds new feature to hackatime-cli
 
 It also fixes x509 bug.
 

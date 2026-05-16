@@ -41,7 +41,7 @@ func TestSaveHeartbeats(t *testing.T) {
 	v.Set("language", "Go")
 	v.Set("alternate-language", "Golang")
 	v.Set("hide-branch-names", true)
-	v.Set("project", "wakatime-cli")
+	v.Set("project", "hackatime-cli")
 	v.Set("lineno", 13)
 	v.Set("time", 1585598059.1)
 	v.Set("timeout", 5)

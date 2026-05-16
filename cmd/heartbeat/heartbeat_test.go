@@ -113,7 +113,7 @@ func TestSendHeartbeats(t *testing.T) {
 	v.Set("language", "Go")
 	v.Set("alternate-language", "Golang")
 	v.Set("hide-branch-names", true)
-	v.Set("projectmap..*", "wakatime-cli")
+	v.Set("projectmap..*", "hackatime-cli")
 	v.Set("lineno", 13)
 	v.Set("local-file", "testdata/localfile.go")
 	v.Set("plugin", plugin)
@@ -177,7 +177,7 @@ func TestSendHeartbeats_RateLimited(t *testing.T) {
 	v.Set("language", "Go")
 	v.Set("alternate-language", "Golang")
 	v.Set("hide-branch-names", true)
-	v.Set("projectmap..*", "wakatime-cli")
+	v.Set("projectmap..*", "hackatime-cli")
 	v.Set("lineno", 13)
 	v.Set("local-file", "testdata/localfile.go")
 	v.Set("plugin", plugin)
@@ -376,7 +376,7 @@ func TestSendHeartbeats_ExtraHeartbeats(t *testing.T) {
 	v.Set("extra-heartbeats", true)
 	v.Set("key", "00000000-0000-4000-8000-000000000000")
 	v.Set("hide-branch-names", true)
-	v.Set("projectmap..*", "wakatime-cli")
+	v.Set("projectmap..*", "hackatime-cli")
 	v.Set("language", "Go")
 	v.Set("alternate-language", "Golang")
 	v.Set("lineno", 2)
@@ -506,7 +506,7 @@ func TestSendHeartbeats_ExtraHeartbeatsNestedError(t *testing.T) {
 	v.Set("extra-heartbeats", true)
 	v.Set("key", "00000000-0000-4000-8000-000000000000")
 	v.Set("hide-branch-names", true)
-	v.Set("projectmap..*", "wakatime-cli")
+	v.Set("projectmap..*", "hackatime-cli")
 	v.Set("language", "Go")
 	v.Set("alternate-language", "Golang")
 	v.Set("lineno", 2)
@@ -611,7 +611,7 @@ func TestSendHeartbeats_ExtraHeartbeats_Sanitize(t *testing.T) {
 	v.Set("key", "00000000-0000-4000-8000-000000000000")
 	v.Set("hide-branch-names", true)
 	v.Set("hide-file-names", true)
-	v.Set("projectmap..*", "wakatime-cli")
+	v.Set("projectmap..*", "hackatime-cli")
 	v.Set("language", "Go")
 	v.Set("alternate-language", "Golang")
 	v.Set("lineno", 13)
@@ -681,7 +681,7 @@ func TestSendHeartbeats_ExtraHeartbeats_Sanitize(t *testing.T) {
 			Language:         heartbeat.PointerTo("Go"),
 			LineNumber:       nil,
 			Lines:            nil,
-			Project:          heartbeat.PointerTo("wakatime-cli"),
+			Project:          heartbeat.PointerTo("hackatime-cli"),
 			ProjectRootCount: nil,
 			Time:             1585598059,
 			UserAgent:        userAgent,
@@ -834,7 +834,7 @@ func TestSendHeartbeats_ExtraHeartbeatsIsUnsavedEntity(t *testing.T) {
 	v.Set("key", "00000000-0000-4000-8000-000000000000")
 	v.Set("language", "Go")
 	v.Set("alternate-language", "Golang")
-	v.Set("projectmap..*", "wakatime-cli")
+	v.Set("projectmap..*", "hackatime-cli")
 	v.Set("hide-branch-names", true)
 	v.Set("lineno", 11)
 	v.Set("lines-in-file", 91)
@@ -960,7 +960,7 @@ func TestSendHeartbeats_NonExistingExtraHeartbeatsEntity(t *testing.T) {
 	v.Set("entity", "testdata/main.go")
 	v.Set("entity-type", "file")
 	v.Set("hide-branch-names", true)
-	v.Set("projectmap..*", "wakatime-cli")
+	v.Set("projectmap..*", "hackatime-cli")
 	v.Set("extra-heartbeats", true)
 	v.Set("key", "00000000-0000-4000-8000-000000000000")
 	v.Set("plugin", plugin)
@@ -1232,7 +1232,7 @@ func TestSendHeartbeats_ObfuscateProject(t *testing.T) {
 		err = json.Unmarshal(body, &[]any{&entity})
 		require.NoError(t, err)
 
-		lines, err := file.ReadLines(ctx, filepath.Join(fp, "wakatime-cli", ".wakatime-project"), 1)
+		lines, err := file.ReadLines(ctx, filepath.Join(fp, "hackatime-cli", ".wakatime-project"), 1)
 		require.NoError(t, err)
 
 		expectedBodyStr := fmt.Sprintf(
@@ -1264,7 +1264,7 @@ func TestSendHeartbeats_ObfuscateProject(t *testing.T) {
 	v.Set("api-url", testServerURL)
 	v.Set("category", "debugging")
 	v.Set("cursorpos", 42)
-	v.Set("entity", filepath.Join(fp, "wakatime-cli/src/pkg/file.go"))
+	v.Set("entity", filepath.Join(fp, "hackatime-cli/src/pkg/file.go"))
 	v.Set("entity-type", "file")
 	v.Set("key", "00000000-0000-4000-8000-000000000000")
 	v.Set("language", "Go")
@@ -1331,7 +1331,7 @@ func TestSendHeartbeats_ObfuscateProjectNotBranch(t *testing.T) {
 		err = json.Unmarshal(body, &[]any{&entity})
 		require.NoError(t, err)
 
-		lines, err := file.ReadLines(ctx, filepath.Join(fp, "wakatime-cli", ".wakatime-project"), 1)
+		lines, err := file.ReadLines(ctx, filepath.Join(fp, "hackatime-cli", ".wakatime-project"), 1)
 		require.NoError(t, err)
 
 		expectedBodyStr := fmt.Sprintf(string(expectedBody), entity.Entity, lines[0], heartbeat.UserAgent(ctx, plugin))
@@ -1358,7 +1358,7 @@ func TestSendHeartbeats_ObfuscateProjectNotBranch(t *testing.T) {
 	v.Set("api-url", testServerURL)
 	v.Set("category", "debugging")
 	v.Set("cursorpos", 42)
-	v.Set("entity", filepath.Join(fp, "wakatime-cli/src/pkg/file.go"))
+	v.Set("entity", filepath.Join(fp, "hackatime-cli/src/pkg/file.go"))
 	v.Set("entity-type", "file")
 	v.Set("key", "00000000-0000-4000-8000-000000000000")
 	v.Set("language", "Go")
@@ -1489,19 +1489,19 @@ func setupTestGitBasic(t *testing.T) (fp string) {
 		tmpDir = windows.FormatFilePath(tmpDir)
 	}
 
-	err = os.MkdirAll(filepath.Join(tmpDir, "wakatime-cli/src/pkg"), os.FileMode(int(0700)))
+	err = os.MkdirAll(filepath.Join(tmpDir, "hackatime-cli/src/pkg"), os.FileMode(int(0700)))
 	require.NoError(t, err)
 
-	tmpFile, err := os.Create(filepath.Join(tmpDir, "wakatime-cli/src/pkg/file.go"))
+	tmpFile, err := os.Create(filepath.Join(tmpDir, "hackatime-cli/src/pkg/file.go"))
 	require.NoError(t, err)
 
 	defer tmpFile.Close()
 
-	err = os.Mkdir(filepath.Join(tmpDir, "wakatime-cli/.git"), os.FileMode(int(0700)))
+	err = os.Mkdir(filepath.Join(tmpDir, "hackatime-cli/.git"), os.FileMode(int(0700)))
 	require.NoError(t, err)
 
-	copyFile(t, "testdata/git_basic/config", filepath.Join(tmpDir, "wakatime-cli/.git/config"))
-	copyFile(t, "testdata/git_basic/HEAD", filepath.Join(tmpDir, "wakatime-cli/.git/HEAD"))
+	copyFile(t, "testdata/git_basic/config", filepath.Join(tmpDir, "hackatime-cli/.git/config"))
+	copyFile(t, "testdata/git_basic/HEAD", filepath.Join(tmpDir, "hackatime-cli/.git/HEAD"))
 
 	return tmpDir
 }

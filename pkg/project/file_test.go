@@ -32,7 +32,7 @@ func TestFile_Detect_FileExists(t *testing.T) {
 	expected := project.Result{
 		Branch:  "master",
 		Folder:  tmpDir,
-		Project: "wakatime-cli",
+		Project: "hackatime-cli",
 	}
 
 	assert.True(t, detected)
@@ -120,7 +120,7 @@ func TestFile_Detect_ParentFolderExists(t *testing.T) {
 	expected := project.Result{
 		Branch:  "master",
 		Folder:  tmpDir,
-		Project: "wakatime-cli",
+		Project: "hackatime-cli",
 	}
 
 	assert.True(t, detected)

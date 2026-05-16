@@ -4,7 +4,7 @@ To contribute to this project please carefully read this document.
 
 ## Setup
 
-`wakatime-cli` is written in [Go](https://golang.org/).
+`hackatime-cli` is written in [Go](https://golang.org/).
 
 Prerequisites:
 

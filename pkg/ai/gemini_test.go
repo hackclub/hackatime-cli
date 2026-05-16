@@ -21,11 +21,11 @@ func TestGeminiParse(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 
-	projectDir := filepath.Join(home, "wakatime-cli")
+	projectDir := filepath.Join(home, "hackatime-cli")
 	require.NoError(t, os.MkdirAll(projectDir, 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".gemini"), 0o755))
 
-	projectSlugDir := filepath.Join(home, ".gemini", "tmp", "wakatime-cli")
+	projectSlugDir := filepath.Join(home, ".gemini", "tmp", "hackatime-cli")
 	sessionDir := filepath.Join(projectSlugDir, "chats")
 	require.NoError(t, os.MkdirAll(sessionDir, 0o755))
 	require.NoError(t, os.WriteFile(

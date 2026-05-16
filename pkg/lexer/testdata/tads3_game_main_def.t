@@ -4,6 +4,6 @@ gameMain: GameMainDef
     }
     showIntro
     {
-        "wakatime-cli";
+        "hackatime-cli";
     }
 ;

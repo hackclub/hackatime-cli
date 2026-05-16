@@ -33,7 +33,7 @@ func TestKiroParse(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 8)
 
-	projectPath := "/Users/user/git/wakatime-cli"
+	projectPath := "/Users/user/git/hackatime-cli"
 	authorsPath := projectPath + "/AUTHORS"
 	readmePath := projectPath + "/README.md"
 	usagePath := projectPath + "/USAGE.md"
@@ -113,8 +113,8 @@ func createKiroSession(t *testing.T, root string) {
 
 	writeKiroJSON(t, filepath.Join(sessionDir, "c2618220-b591-4431-8f14-fcd7ae3e6f56.json"), map[string]any{
 		"sessionId":          "c2618220-b591-4431-8f14-fcd7ae3e6f56",
-		"workspacePath":      "/Users/user/git/wakatime-cli",
-		"workspaceDirectory": "/Users/user/git/wakatime-cli",
+		"workspacePath":      "/Users/user/git/hackatime-cli",
+		"workspaceDirectory": "/Users/user/git/hackatime-cli",
 		"history": []map[string]any{
 			kiroUserMessage("Add your name to the AUTHORS file in this repo"),
 			kiroAssistantMessage("4490c49d-f38f-4d24-907e-d14daa4224cc"),
@@ -207,7 +207,7 @@ func kiroReplaceAction(emittedAt int64, filePath string, original string, modifi
 		"emittedAt":   emittedAt,
 		"input": map[string]any{
 			"file":            filePath,
-			"local":           "file:///Users/user/git/wakatime-cli/" + filePath,
+			"local":           "file:///Users/user/git/hackatime-cli/" + filePath,
 			"originalContent": original,
 			"modifiedContent": modified,
 		},

@@ -86,7 +86,7 @@ func TestRunWithRateLimiting(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -179,7 +179,7 @@ func TestRunWithoutRateLimiting(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -286,7 +286,7 @@ func TestSyncOfflineActivity(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -382,7 +382,7 @@ func TestSyncOfflineActivity_MultipleApiKey(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGoChanged),
 		},
 		{
@@ -513,7 +513,7 @@ func TestSyncOfflineActivity_MultipleAPIURLs(t *testing.T) {
 		Language:       heartbeat.PointerTo("Go"),
 		LineNumber:     heartbeat.PointerTo(42),
 		Lines:          heartbeat.PointerTo(100),
-		Project:        heartbeat.PointerTo("wakatime-cli"),
+		Project:        heartbeat.PointerTo("hackatime-cli"),
 		Time:           1592868367.219124,
 		UserAgent:      "wakatime/13.0.6",
 	}
@@ -523,7 +523,7 @@ func TestSyncOfflineActivity_MultipleAPIURLs(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/work/projects/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/work/projects/main.go-true",
 			Heartbeat: string(workHeartbeatData),
 		},
 	})

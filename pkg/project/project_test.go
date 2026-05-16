@@ -130,8 +130,8 @@ func TestWithDetection_WakatimeProjectTakesPrecedence(t *testing.T) {
 
 	ctx := t.Context()
 
-	entity := filepath.Join(fp, "wakatime-cli/src/pkg/file.go")
-	projectPath := filepath.Join(fp, "wakatime-cli")
+	entity := filepath.Join(fp, "hackatime-cli/src/pkg/file.go")
+	projectPath := filepath.Join(fp, "hackatime-cli")
 	projectPath = project.FormatProjectFolder(ctx, projectPath)
 
 	if runtime.GOOS == "windows" {
@@ -141,7 +141,7 @@ func TestWithDetection_WakatimeProjectTakesPrecedence(t *testing.T) {
 	copyFile(
 		t,
 		"testdata/wakatime-project-other",
-		filepath.Join(fp, "wakatime-cli", ".wakatime-project"),
+		filepath.Join(fp, "hackatime-cli", ".wakatime-project"),
 	)
 
 	opts := []heartbeat.HandleOption{
@@ -185,8 +185,8 @@ func TestWithDetection_WakatimeProjectTakesPrecedence(t *testing.T) {
 func TestWithDetection_OverrideTakesPrecedence(t *testing.T) {
 	fp := setupTestGitBasic(t)
 
-	entity := filepath.Join(fp, "wakatime-cli/src/pkg/file.go")
-	projectPath := filepath.Join(fp, "wakatime-cli")
+	entity := filepath.Join(fp, "hackatime-cli/src/pkg/file.go")
+	projectPath := filepath.Join(fp, "hackatime-cli")
 	projectPath = project.FormatProjectFolder(t.Context(), projectPath)
 
 	if runtime.GOOS == "windows" {
@@ -224,7 +224,7 @@ func TestWithDetection_OverrideTakesPrecedence(t *testing.T) {
 func TestWithDetection_OverrideTakesPrecedence_WithProjectPathOverride(t *testing.T) {
 	fp := setupTestGitBasic(t)
 
-	entity := filepath.Join(fp, "wakatime-cli/src/pkg/file.go")
+	entity := filepath.Join(fp, "hackatime-cli/src/pkg/file.go")
 
 	if runtime.GOOS == "windows" {
 		entity = windows.FormatFilePath(entity)
@@ -487,8 +487,8 @@ func TestWithDetection_ObfuscateProject(t *testing.T) {
 
 	ctx := t.Context()
 
-	entity := filepath.Join(fp, "wakatime-cli/src/pkg/file.go")
-	projectPath := filepath.Join(fp, "wakatime-cli")
+	entity := filepath.Join(fp, "hackatime-cli/src/pkg/file.go")
+	projectPath := filepath.Join(fp, "hackatime-cli")
 	projectPath = project.FormatProjectFolder(ctx, projectPath)
 
 	if runtime.GOOS == "windows" {
@@ -523,7 +523,7 @@ func TestWithDetection_ObfuscateProject(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.FileExists(t, filepath.Join(fp, "wakatime-cli/.wakatime-project"))
+	assert.FileExists(t, filepath.Join(fp, "hackatime-cli/.wakatime-project"))
 }
 
 func TestDetect_FileDetected(t *testing.T) {
@@ -547,7 +547,7 @@ func TestDetect_FileDetected(t *testing.T) {
 		ShouldRun: true,
 	})
 
-	assert.Equal(t, "wakatime-cli", result.Project)
+	assert.Equal(t, "hackatime-cli", result.Project)
 	assert.Equal(t, "master", result.Branch)
 	assert.Contains(t, result.Folder, tmpDir)
 	assert.Equal(t, detector, project.FileDetector)
@@ -557,10 +557,10 @@ func TestDetect_EmptyFileDetected(t *testing.T) {
 	tmpDir, err := realpath.Realpath(t.TempDir())
 	require.NoError(t, err)
 
-	err = os.Mkdir(filepath.Join(tmpDir, "wakatime-cli"), os.FileMode(int(0700)))
+	err = os.Mkdir(filepath.Join(tmpDir, "hackatime-cli"), os.FileMode(int(0700)))
 	require.NoError(t, err)
 
-	tmpWakatimeProjectEmpty, err := os.Create(filepath.Join(tmpDir, "wakatime-cli", ".wakatime-project"))
+	tmpWakatimeProjectEmpty, err := os.Create(filepath.Join(tmpDir, "hackatime-cli", ".wakatime-project"))
 	require.NoError(t, err)
 
 	defer tmpWakatimeProjectEmpty.Close()
@@ -568,15 +568,15 @@ func TestDetect_EmptyFileDetected(t *testing.T) {
 	copyFile(
 		t,
 		"testdata/entity.any",
-		filepath.Join(tmpDir, "wakatime-cli", "entity.any"),
+		filepath.Join(tmpDir, "hackatime-cli", "entity.any"),
 	)
 
 	result, detector := project.Detect(t.Context(), []project.MapPattern{}, project.DetecterArg{
-		Filepath:  filepath.Join(tmpDir, "wakatime-cli", "entity.any"),
+		Filepath:  filepath.Join(tmpDir, "hackatime-cli", "entity.any"),
 		ShouldRun: true,
 	})
 
-	assert.Equal(t, "wakatime-cli", result.Project)
+	assert.Equal(t, "hackatime-cli", result.Project)
 	assert.Equal(t, "", result.Branch)
 	assert.Contains(t, result.Folder, tmpDir)
 	assert.Equal(t, detector, project.FileDetector)
@@ -621,14 +621,14 @@ func TestDetectWithRevControl_GitDetected(t *testing.T) {
 		[]project.MapPattern{},
 		false,
 		project.DetecterArg{
-			Filepath:  filepath.Join(fp, "wakatime-cli/src/pkg/file.go"),
+			Filepath:  filepath.Join(fp, "hackatime-cli/src/pkg/file.go"),
 			ShouldRun: true,
 		},
 	)
 
-	assert.Contains(t, result.Folder, filepath.Join(fp, "wakatime-cli"))
+	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "wakatime-cli",
+		Project: "hackatime-cli",
 		Folder:  result.Folder,
 		Branch:  "master",
 	}, result)
@@ -643,12 +643,12 @@ func TestDetectWithRevControl_GitRemoteDetected(t *testing.T) {
 		[]project.MapPattern{},
 		true,
 		project.DetecterArg{
-			Filepath:  filepath.Join(fp, "wakatime-cli/src/pkg/file.go"),
+			Filepath:  filepath.Join(fp, "hackatime-cli/src/pkg/file.go"),
 			ShouldRun: true,
 		},
 	)
 
-	assert.Contains(t, result.Folder, filepath.Join(fp, "wakatime-cli"))
+	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
 		Project: "hackclub/hackatime-cli",
 		Folder:  result.Folder,
@@ -692,11 +692,11 @@ func TestWithDetection_ProjectPlaceholder_WithGit(t *testing.T) {
 
 	// Create .wakatime-project file with {project} placeholder
 	wakatimeProjectContent := "my-company/{project}\n"
-	err := os.WriteFile(filepath.Join(fp, "wakatime-cli", ".wakatime-project"), []byte(wakatimeProjectContent), 0600)
+	err := os.WriteFile(filepath.Join(fp, "hackatime-cli", ".wakatime-project"), []byte(wakatimeProjectContent), 0600)
 	require.NoError(t, err)
 
-	entity := filepath.Join(fp, "wakatime-cli/src/pkg/file.go")
-	projectPath := filepath.Join(fp, "wakatime-cli")
+	entity := filepath.Join(fp, "hackatime-cli/src/pkg/file.go")
+	projectPath := filepath.Join(fp, "hackatime-cli")
 	projectPath = project.FormatProjectFolder(ctx, projectPath)
 
 	if runtime.GOOS == "windows" {
@@ -711,7 +711,7 @@ func TestWithDetection_ProjectPlaceholder_WithGit(t *testing.T) {
 				Branch:           heartbeat.PointerTo("master"),
 				Entity:           entity,
 				EntityType:       heartbeat.FileType,
-				Project:          heartbeat.PointerTo("my-company/wakatime-cli"),
+				Project:          heartbeat.PointerTo("my-company/hackatime-cli"),
 				ProjectPath:      projectPath,
 				ProjectRootCount: heartbeat.PointerTo(project.CountSlashesInProjectFolder(projectPath)),
 			},
@@ -736,11 +736,11 @@ func TestWithDetection_ProjectPlaceholder_AsPrefix(t *testing.T) {
 
 	// Create .wakatime-project file with {project} placeholder as prefix
 	wakatimeProjectContent := "{project}-internal\n"
-	err := os.WriteFile(filepath.Join(fp, "wakatime-cli", ".wakatime-project"), []byte(wakatimeProjectContent), 0600)
+	err := os.WriteFile(filepath.Join(fp, "hackatime-cli", ".wakatime-project"), []byte(wakatimeProjectContent), 0600)
 	require.NoError(t, err)
 
-	entity := filepath.Join(fp, "wakatime-cli/src/pkg/file.go")
-	projectPath := filepath.Join(fp, "wakatime-cli")
+	entity := filepath.Join(fp, "hackatime-cli/src/pkg/file.go")
+	projectPath := filepath.Join(fp, "hackatime-cli")
 	projectPath = project.FormatProjectFolder(ctx, projectPath)
 
 	if runtime.GOOS == "windows" {
@@ -755,7 +755,7 @@ func TestWithDetection_ProjectPlaceholder_AsPrefix(t *testing.T) {
 				Branch:           heartbeat.PointerTo("master"),
 				Entity:           entity,
 				EntityType:       heartbeat.FileType,
-				Project:          heartbeat.PointerTo("wakatime-cli-internal"),
+				Project:          heartbeat.PointerTo("hackatime-cli-internal"),
 				ProjectPath:      projectPath,
 				ProjectRootCount: heartbeat.PointerTo(project.CountSlashesInProjectFolder(projectPath)),
 			},
@@ -780,11 +780,11 @@ func TestWithDetection_ProjectPlaceholder_Alone(t *testing.T) {
 
 	// Create .wakatime-project file with just {project} placeholder
 	wakatimeProjectContent := "{project}\n"
-	err := os.WriteFile(filepath.Join(fp, "wakatime-cli", ".wakatime-project"), []byte(wakatimeProjectContent), 0600)
+	err := os.WriteFile(filepath.Join(fp, "hackatime-cli", ".wakatime-project"), []byte(wakatimeProjectContent), 0600)
 	require.NoError(t, err)
 
-	entity := filepath.Join(fp, "wakatime-cli/src/pkg/file.go")
-	projectPath := filepath.Join(fp, "wakatime-cli")
+	entity := filepath.Join(fp, "hackatime-cli/src/pkg/file.go")
+	projectPath := filepath.Join(fp, "hackatime-cli")
 	projectPath = project.FormatProjectFolder(ctx, projectPath)
 
 	if runtime.GOOS == "windows" {
@@ -799,7 +799,7 @@ func TestWithDetection_ProjectPlaceholder_Alone(t *testing.T) {
 				Branch:           heartbeat.PointerTo("master"),
 				Entity:           entity,
 				EntityType:       heartbeat.FileType,
-				Project:          heartbeat.PointerTo("wakatime-cli"),
+				Project:          heartbeat.PointerTo("hackatime-cli"),
 				ProjectPath:      projectPath,
 				ProjectRootCount: heartbeat.PointerTo(project.CountSlashesInProjectFolder(projectPath)),
 			},
@@ -878,11 +878,11 @@ func TestWithDetection_ProjectPlaceholder_MultiplePlaceholders(t *testing.T) {
 
 	// Create .wakatime-project file with multiple {project} placeholders
 	wakatimeProjectContent := "{project}/{project}\n"
-	err := os.WriteFile(filepath.Join(fp, "wakatime-cli", ".wakatime-project"), []byte(wakatimeProjectContent), 0600)
+	err := os.WriteFile(filepath.Join(fp, "hackatime-cli", ".wakatime-project"), []byte(wakatimeProjectContent), 0600)
 	require.NoError(t, err)
 
-	entity := filepath.Join(fp, "wakatime-cli/src/pkg/file.go")
-	projectPath := filepath.Join(fp, "wakatime-cli")
+	entity := filepath.Join(fp, "hackatime-cli/src/pkg/file.go")
+	projectPath := filepath.Join(fp, "hackatime-cli")
 	projectPath = project.FormatProjectFolder(ctx, projectPath)
 
 	if runtime.GOOS == "windows" {
@@ -897,7 +897,7 @@ func TestWithDetection_ProjectPlaceholder_MultiplePlaceholders(t *testing.T) {
 				Branch:           heartbeat.PointerTo("master"),
 				Entity:           entity,
 				EntityType:       heartbeat.FileType,
-				Project:          heartbeat.PointerTo("wakatime-cli/wakatime-cli"),
+				Project:          heartbeat.PointerTo("hackatime-cli/hackatime-cli"),
 				ProjectPath:      projectPath,
 				ProjectRootCount: heartbeat.PointerTo(project.CountSlashesInProjectFolder(projectPath)),
 			},

@@ -370,7 +370,7 @@ func TestLoadHeartbeatParams_ExtraHeartbeats(t *testing.T) {
 			LineNumber:        heartbeat.PointerTo(42),
 			Lines:             heartbeat.PointerTo(45),
 			ProjectAlternate:  "billing",
-			ProjectOverride:   "wakatime-cli",
+			ProjectOverride:   "hackatime-cli",
 			Time:              1585598059,
 			// tested above
 			Language: params.ExtraHeartbeats[0].Language,
@@ -383,7 +383,7 @@ func TestLoadHeartbeatParams_ExtraHeartbeats(t *testing.T) {
 			LanguageAlternate: "Py",
 			LineNumber:        nil,
 			Lines:             nil,
-			ProjectOverride:   "wakatime-cli",
+			ProjectOverride:   "hackatime-cli",
 			Time:              1585598060,
 			// tested above
 			Language: params.ExtraHeartbeats[1].Language,
@@ -514,7 +514,7 @@ func TestLoadHeartbeatParams_ExtraHeartbeats_WithEOF(t *testing.T) {
 			LineNumber:        heartbeat.PointerTo(42),
 			Lines:             heartbeat.PointerTo(45),
 			ProjectAlternate:  "billing",
-			ProjectOverride:   "wakatime-cli",
+			ProjectOverride:   "hackatime-cli",
 			Time:              1585598059,
 			// tested above
 			Language: params.ExtraHeartbeats[0].Language,
@@ -527,7 +527,7 @@ func TestLoadHeartbeatParams_ExtraHeartbeats_WithEOF(t *testing.T) {
 			LanguageAlternate: "Py",
 			LineNumber:        nil,
 			Lines:             nil,
-			ProjectOverride:   "wakatime-cli",
+			ProjectOverride:   "hackatime-cli",
 			Time:              1585598060,
 			// tested above
 			Language: params.ExtraHeartbeats[1].Language,

@@ -29,7 +29,7 @@ func TestContinueParse(t *testing.T) {
 	require.NoError(t, os.MkdirAll(devDataDir, 0o755))
 	require.NoError(t, os.MkdirAll(sessionsDir, 0o755))
 
-	workspace := filepath.Join(home, "wakatime-cli")
+	workspace := filepath.Join(home, "hackatime-cli")
 	readPath := filepath.Join(workspace, "README.md")
 	editPath := filepath.Join(workspace, "pkg", "ai", "continue.go")
 	sessionID := "5832a36f-ea52-4eb4-b8f7-16ed2bf063dd"

@@ -1,9 +1,9 @@
 # Usage
 
-Options can be passed to wakatime-cli via command line, or set in the `$WAKATIME_HOME/.wakatime.cfg` config file.
+Options can be passed to hackatime-cli via command line, or set in the `$WAKATIME_HOME/.wakatime.cfg` config file.
 `$WAKATIME_HOME` defaults to your user's `$HOME` directory.
 Command line arguments take precedence over config file settings.
-Run `wakatime-cli --help` for available command line options.
+Run `hackatime-cli --help` for available command line options.
 
 ## Config File
 
@@ -170,7 +170,7 @@ With this configuration:
 
 ### Api Key Environment Variable
 
-If a `WAKATIME_API_KEY` env var exists, wakatime-cli will use its value as the api key.
+If a `WAKATIME_API_KEY` env var exists, hackatime-cli will use its value as the api key.
 This means you don’t need a `~/.wakatime.cfg` file, or you can omit or leave empty the `api_key` setting in your config file if using the env var.
 However, if an api key exists in your `~/.wakatime.cfg` file then it takes precedence over the env var.
 
@@ -232,7 +232,7 @@ This is useful when you want to organize projects under a common namespace (like
 
 ## Internal INI Config File
 
-The plugins and wakatime-cli use a separate internal INI file for things like caching auto-update requests to the GitHub releases API, and exponential backoff to the WakaTime API.
+The plugins and hackatime-cli use a separate internal INI file for things like caching auto-update requests to the GitHub releases API, and exponential backoff to the WakaTime API.
 The default internal INI config file location is `$WAKATIME_HOME/.wakatime/wakatime-internal.cfg`.
 
 [plugins]: https://wakatime.com/plugins

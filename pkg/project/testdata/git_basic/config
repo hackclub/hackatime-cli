@@ -12,5 +12,5 @@
 	remote = origin
 	merge = refs/heads/develop
 [user]
-	email = wakatime-cli@wakatime.com
+	email = hackatime-cli@wakatime.com
 	name = WakaTime

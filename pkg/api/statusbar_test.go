@@ -311,7 +311,7 @@ func testSummary() *summary.Summary {
 					Digital:      "2:03:44",
 					Hours:        2,
 					Minutes:      3,
-					Name:         "wakatime-cli",
+					Name:         "hackatime-cli",
 					Percent:      97.53,
 					Seconds:      44,
 					Text:         "2 hrs 3 mins",

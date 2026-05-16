@@ -317,7 +317,7 @@ func testHeartbeats() []heartbeat.Heartbeat {
 			Language:       heartbeat.PointerTo("Go"),
 			LineNumber:     heartbeat.PointerTo(42),
 			Lines:          heartbeat.PointerTo(100),
-			Project:        heartbeat.PointerTo("wakatime-cli"),
+			Project:        heartbeat.PointerTo("hackatime-cli"),
 			Time:           1585598059,
 			UserAgent:      "wakatime/13.0.6",
 		},

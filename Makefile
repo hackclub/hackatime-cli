@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := build
 
 # globals
-BINARY_NAME?=wakatime-cli
+BINARY_NAME?=hackatime-cli
 BUILD_DIR?="./build"
 CGO_ENABLED?=0
 COMMIT?=$(shell git rev-parse --short HEAD)

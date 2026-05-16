@@ -83,27 +83,27 @@ func copyFile(t *testing.T, source, destination string) {
 }
 
 func TestInterpolateProjectPlaceholder_WithVCSProject(t *testing.T) {
-	result := interpolateProjectPlaceholder("my-company/{project}", "wakatime-cli", "/some/folder")
+	result := interpolateProjectPlaceholder("my-company/{project}", "hackatime-cli", "/some/folder")
 
-	assert.Equal(t, "my-company/wakatime-cli", result)
+	assert.Equal(t, "my-company/hackatime-cli", result)
 }
 
 func TestInterpolateProjectPlaceholder_WithVCSProject_AsPrefix(t *testing.T) {
-	result := interpolateProjectPlaceholder("{project}-internal", "wakatime-cli", "/some/folder")
+	result := interpolateProjectPlaceholder("{project}-internal", "hackatime-cli", "/some/folder")
 
-	assert.Equal(t, "wakatime-cli-internal", result)
+	assert.Equal(t, "hackatime-cli-internal", result)
 }
 
 func TestInterpolateProjectPlaceholder_WithVCSProject_Alone(t *testing.T) {
-	result := interpolateProjectPlaceholder("{project}", "wakatime-cli", "/some/folder")
+	result := interpolateProjectPlaceholder("{project}", "hackatime-cli", "/some/folder")
 
-	assert.Equal(t, "wakatime-cli", result)
+	assert.Equal(t, "hackatime-cli", result)
 }
 
 func TestInterpolateProjectPlaceholder_WithVCSProject_MultiplePlaceholders(t *testing.T) {
-	result := interpolateProjectPlaceholder("{project}/{project}", "wakatime-cli", "/some/folder")
+	result := interpolateProjectPlaceholder("{project}/{project}", "hackatime-cli", "/some/folder")
 
-	assert.Equal(t, "wakatime-cli/wakatime-cli", result)
+	assert.Equal(t, "hackatime-cli/hackatime-cli", result)
 }
 
 func TestInterpolateProjectPlaceholder_FallbackToFolderBasename(t *testing.T) {
@@ -137,7 +137,7 @@ func TestInterpolateProjectPlaceholder_FolderIsSlash(t *testing.T) {
 }
 
 func TestInterpolateProjectPlaceholder_NoPlaceholder(t *testing.T) {
-	result := interpolateProjectPlaceholder("my-static-project", "wakatime-cli", "/some/folder")
+	result := interpolateProjectPlaceholder("my-static-project", "hackatime-cli", "/some/folder")
 
 	assert.Equal(t, "my-static-project", result)
 }

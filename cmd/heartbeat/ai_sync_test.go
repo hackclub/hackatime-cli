@@ -143,7 +143,7 @@ func TestRunAISyncActivity_SendsAIPromptLengthToAPI(t *testing.T) {
 		strings.Join([]string{
 			`{"timestamp":"2026-03-28T11:33:14.288Z","type":"session_meta",`,
 			`"payload":{"id":"019d3438-39ae-7fb2-8526-d6c02ba3577c",`,
-			`"cwd":"/root/wakatime-cli","cli_version":"0.116.0-alpha.10"}}`,
+			`"cwd":"/root/hackatime-cli","cli_version":"0.116.0-alpha.10"}}`,
 		}, ""),
 		strings.Join([]string{
 			`{"timestamp":"2026-03-28T11:33:14.289Z","type":"response_item",`,

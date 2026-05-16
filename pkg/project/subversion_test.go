@@ -18,7 +18,7 @@ func TestSubversion_Detect(t *testing.T) {
 	fp := setupTestSvn(t)
 
 	s := project.Subversion{
-		Filepath: filepath.Join(fp, "wakatime-cli", "src", "pkg", "file.go"),
+		Filepath: filepath.Join(fp, "hackatime-cli", "src", "pkg", "file.go"),
 	}
 
 	result, detected, err := s.Detect(t.Context())
@@ -26,9 +26,9 @@ func TestSubversion_Detect(t *testing.T) {
 
 	assert.True(t, detected)
 	assert.Equal(t, project.Result{
-		Project: "wakatime-cli",
+		Project: "hackatime-cli",
 		Branch:  "trunk",
-		Folder:  "file:///D:/temp/SVN/wakatime-cli",
+		Folder:  "file:///D:/temp/SVN/hackatime-cli",
 	}, result)
 }
 
@@ -38,7 +38,7 @@ func TestSubversion_Detect_Branch(t *testing.T) {
 	fp := setupTestSvnBranch(t)
 
 	s := project.Subversion{
-		Filepath: filepath.Join(fp, "wakatime-cli/src/pkg/file.go"),
+		Filepath: filepath.Join(fp, "hackatime-cli/src/pkg/file.go"),
 	}
 
 	result, detected, err := s.Detect(t.Context())
@@ -46,9 +46,9 @@ func TestSubversion_Detect_Branch(t *testing.T) {
 
 	assert.True(t, detected)
 	assert.Equal(t, project.Result{
-		Project: "wakatime-cli",
+		Project: "hackatime-cli",
 		Branch:  "billing",
-		Folder:  "file:///D:/temp/SVN/wakatime-cli",
+		Folder:  "file:///D:/temp/SVN/hackatime-cli",
 	}, result)
 }
 
@@ -61,15 +61,15 @@ func TestSubversion_ID(t *testing.T) {
 func setupTestSvn(t *testing.T) (fp string) {
 	tmpDir := t.TempDir()
 
-	err := os.MkdirAll(filepath.Join(tmpDir, "wakatime-cli/src/pkg"), os.FileMode(int(0700)))
+	err := os.MkdirAll(filepath.Join(tmpDir, "hackatime-cli/src/pkg"), os.FileMode(int(0700)))
 	require.NoError(t, err)
 
-	tmpFile, err := os.Create(filepath.Join(tmpDir, "wakatime-cli/src/pkg/file.go"))
+	tmpFile, err := os.Create(filepath.Join(tmpDir, "hackatime-cli/src/pkg/file.go"))
 	require.NoError(t, err)
 
 	defer tmpFile.Close()
 
-	copyDir(t, "testdata/svn", filepath.Join(tmpDir, "wakatime-cli/.svn"))
+	copyDir(t, "testdata/svn", filepath.Join(tmpDir, "hackatime-cli/.svn"))
 
 	return tmpDir
 }
@@ -77,15 +77,15 @@ func setupTestSvn(t *testing.T) (fp string) {
 func setupTestSvnBranch(t *testing.T) (fp string) {
 	tmpDir := t.TempDir()
 
-	err := os.MkdirAll(filepath.Join(tmpDir, "wakatime-cli/src/pkg"), os.FileMode(int(0700)))
+	err := os.MkdirAll(filepath.Join(tmpDir, "hackatime-cli/src/pkg"), os.FileMode(int(0700)))
 	require.NoError(t, err)
 
-	tmpFile, err := os.Create(filepath.Join(tmpDir, "wakatime-cli/src/pkg/file.go"))
+	tmpFile, err := os.Create(filepath.Join(tmpDir, "hackatime-cli/src/pkg/file.go"))
 	require.NoError(t, err)
 
 	defer tmpFile.Close()
 
-	copyDir(t, "testdata/svn_branch", filepath.Join(tmpDir, "wakatime-cli/.svn"))
+	copyDir(t, "testdata/svn_branch", filepath.Join(tmpDir, "hackatime-cli/.svn"))
 
 	return tmpDir
 }

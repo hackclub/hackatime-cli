@@ -672,7 +672,7 @@ func TestRunCmdWithOfflineSync(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{

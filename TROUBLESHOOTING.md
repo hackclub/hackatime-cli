@@ -6,7 +6,7 @@ Set `debug=true` in your `~/.wakatime.cfg` file to enable verbose logging.
 
 If you’re debugging RAM usage, set `metrics=true` in your `~/.wakatime.cfg` file to log [pprof][pprof] memory usage to `~/.wakatime/metrics/`.
 
-The common wakatime-cli program logs to your user `$HOME` directory `~/.wakatime/wakatime.log`.
+The common hackatime-cli program logs to your user `$HOME` directory `~/.wakatime/wakatime.log`.
 
 If your error message contains `won't send heartbeat due to backoff`, delete your `~/.wakatime/wakatime-internal.cfg` file to trigger an API connection to get the real error message.
 

@@ -62,7 +62,7 @@ func TestClient_FileExperts(t *testing.T) {
 				{
 					APIKey:           "00000000-0000-4000-8000-000000000000",
 					Entity:           "/tmp/main.go",
-					Project:          heartbeat.PointerTo("wakatime-cli"),
+					Project:          heartbeat.PointerTo("hackatime-cli"),
 					ProjectRootCount: heartbeat.PointerTo(6),
 				},
 			})
@@ -137,7 +137,7 @@ func TestClient_FileExperts_Err(t *testing.T) {
 		{
 			APIKey:           "00000000-0000-4000-8000-000000000000",
 			Entity:           "/tmp/main.go",
-			Project:          heartbeat.PointerTo("wakatime-cli"),
+			Project:          heartbeat.PointerTo("hackatime-cli"),
 			ProjectRootCount: heartbeat.PointerTo(6),
 		},
 	})
@@ -166,7 +166,7 @@ func TestClient_FileExperts_ErrAuth(t *testing.T) {
 		{
 			APIKey:           "00000000-0000-4000-8000-000000000000",
 			Entity:           "/tmp/main.go",
-			Project:          heartbeat.PointerTo("wakatime-cli"),
+			Project:          heartbeat.PointerTo("hackatime-cli"),
 			ProjectRootCount: heartbeat.PointerTo(6),
 		},
 	})
@@ -195,7 +195,7 @@ func TestClient_FileExperts_ErrBadRequest(t *testing.T) {
 		{
 			APIKey:           "00000000-0000-4000-8000-000000000000",
 			Entity:           "/tmp/main.go",
-			Project:          heartbeat.PointerTo("wakatime-cli"),
+			Project:          heartbeat.PointerTo("hackatime-cli"),
 			ProjectRootCount: heartbeat.PointerTo(6),
 		},
 	})
@@ -213,7 +213,7 @@ func TestClient_FileExperts_InvalidUrl(t *testing.T) {
 		{
 			APIKey:           "00000000-0000-4000-8000-000000000000",
 			Entity:           "/tmp/main.go",
-			Project:          heartbeat.PointerTo("wakatime-cli"),
+			Project:          heartbeat.PointerTo("hackatime-cli"),
 			ProjectRootCount: heartbeat.PointerTo(6),
 		},
 	})

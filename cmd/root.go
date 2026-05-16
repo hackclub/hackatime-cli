@@ -26,7 +26,7 @@ func NewRootCMD() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "wakatime-cli",
+		Use:   "hackatime-cli",
 		Short: "Command line interface used by all WakaTime text editor plugins.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := RunE(cmd, v); err != nil {
@@ -285,10 +285,10 @@ func setFlags(cmd *cobra.Command, v *viper.Viper) {
 	flags.Bool(
 		"user-agent",
 		false,
-		"(internal) Prints the wakatime-cli useragent, as it will be sent to the api, then exits.",
+		"(internal) Prints the hackatime-cli useragent, as it will be sent to the api, then exits.",
 	)
 	flags.Bool("verbose", false, "Turns on debug messages in log file, and sends diagnostics if a crash occurs.")
-	flags.Bool("version", false, "Prints the wakatime-cli version number, then exits.")
+	flags.Bool("version", false, "Prints the hackatime-cli version number, then exits.")
 	flags.Bool("write", false, "When set, tells api this heartbeat was triggered from writing to a file.")
 
 	// hide deprecated flags
@@ -316,6 +316,6 @@ func setFlags(cmd *cobra.Command, v *viper.Viper) {
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := NewRootCMD().Execute(); err != nil {
-		log.Fatalf("failed to run wakatime-cli: %s", err)
+		log.Fatalf("failed to run hackatime-cli: %s", err)
 	}
 }

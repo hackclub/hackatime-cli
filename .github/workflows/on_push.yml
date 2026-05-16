@@ -593,8 +593,8 @@ jobs:
       -
         name: Codesign
         run: |
-          codesign -v --force --timestamp -s "Developer ID Application: WAKATIME, LLC" --options runtime ./build/wakatime-cli-darwin-amd64
-          codesign -v --force --timestamp -s "Developer ID Application: WAKATIME, LLC" --options runtime ./build/wakatime-cli-darwin-arm64
+          codesign -v --force --timestamp -s "Developer ID Application: WAKATIME, LLC" --options runtime ./build/hackatime-cli-darwin-amd64
+          codesign -v --force --timestamp -s "Developer ID Application: WAKATIME, LLC" --options runtime ./build/hackatime-cli-darwin-arm64
       -
         name: Store Credentials
         env:
@@ -605,13 +605,13 @@ jobs:
       -
         name: Notarize amd64
         run: |
-          ditto -c -k --keepParent ./build/wakatime-cli-darwin-amd64 ./wakatime-cli-darwin-amd64.zip
-          xcrun notarytool submit ./wakatime-cli-darwin-amd64.zip --keychain-profile "notarytool-profile" --wait
+          ditto -c -k --keepParent ./build/hackatime-cli-darwin-amd64 ./hackatime-cli-darwin-amd64.zip
+          xcrun notarytool submit ./hackatime-cli-darwin-amd64.zip --keychain-profile "notarytool-profile" --wait
       -
         name: Notarize arm64
         run: |
-          ditto -c -k --keepParent ./build/wakatime-cli-darwin-arm64 ./wakatime-cli-darwin-arm64.zip
-          xcrun notarytool submit ./wakatime-cli-darwin-arm64.zip --keychain-profile "notarytool-profile" --wait
+          ditto -c -k --keepParent ./build/hackatime-cli-darwin-arm64 ./hackatime-cli-darwin-arm64.zip
+          xcrun notarytool submit ./hackatime-cli-darwin-arm64.zip --keychain-profile "notarytool-profile" --wait
       -
         name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -730,7 +730,7 @@ jobs:
                   type: 'section',
                   text: {
                     type: 'mrkdwn',
-                    text: `New <https://github.com/hackclub/hackatime-cli|wakatime-cli> version <https://github.com/hackclub/hackatime-cli/releases/tag/${{ needs.version.outputs.semver_tag }}|${{ needs.version.outputs.semver_tag }}> released`
+                    text: `New <https://github.com/hackclub/hackatime-cli|hackatime-cli> version <https://github.com/hackclub/hackatime-cli/releases/tag/${{ needs.version.outputs.semver_tag }}|${{ needs.version.outputs.semver_tag }}> released`
                   }
                 },
                 {

@@ -49,7 +49,7 @@ func TestQoderParse(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 5)
 
-	authorsPath := "/Users/user/git/wakatime-cli/AUTHORS"
+	authorsPath := "/Users/user/git/hackatime-cli/AUTHORS"
 
 	assert.Equal(t, "Qoder 99947f30-f6f8-4323-a2c1-4970f5329d9c", got[0].Entity)
 	assert.Equal(t, heartbeat.AppType, got[0].EntityType)
@@ -57,7 +57,7 @@ func TestQoderParse(t *testing.T) {
 	assert.EqualValues(t, 20159, got[0].AIInputTokens)
 	assert.EqualValues(t, 129, got[0].AIOutputTokens)
 	assert.Equal(t, 45, got[0].AIPromptLength)
-	assert.Equal(t, "/Users/user/git/wakatime-cli", got[0].ProjectPathOverride)
+	assert.Equal(t, "/Users/user/git/hackatime-cli", got[0].ProjectPathOverride)
 	assert.Contains(t, got[0].UserAgent, "Qoder")
 
 	assert.Equal(t, "Qoder 99947f30-f6f8-4323-a2c1-4970f5329d9c", got[1].Entity)
@@ -149,7 +149,7 @@ CREATE TABLE chat_message (
 	sessionID := "99947f30-f6f8-4323-a2c1-4970f5329d9c"
 	firstRequestID := "c50ecfc2-0546-4712-a1a5-e5fe5fd4e94b"
 	secondRequestID := "8ab982b7-15ca-43bc-9fac-1a7d607b2830"
-	projectPath := "/Users/user/git/wakatime-cli"
+	projectPath := "/Users/user/git/hackatime-cli"
 	authorsPath := projectPath + "/AUTHORS"
 
 	_, err = db.Exec(
@@ -240,7 +240,7 @@ func createQoderConversationHistory(t *testing.T, home string) {
 		".qoder",
 		"cache",
 		"projects",
-		"wakatime-cli-4faf562b",
+		"hackatime-cli-4faf562b",
 		"conversation-history",
 		"99947f30",
 	)

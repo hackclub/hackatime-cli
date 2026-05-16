@@ -41,7 +41,7 @@ func TestSendHeartbeats(t *testing.T) {
 	projectFolder, err := filepath.Abs(".")
 	require.NoError(t, err)
 
-	testSendHeartbeats(t, projectFolder, "testdata/main.go", "wakatime-cli")
+	testSendHeartbeats(t, projectFolder, "testdata/main.go", "hackatime-cli")
 }
 
 func TestSendHeartbeats_EntityFileInTempDir(t *testing.T) {
@@ -187,7 +187,7 @@ func TestSendHeartbeats_SecondaryApiKey(t *testing.T) {
 		expectedBody := fmt.Sprintf(
 			string(expectedBodyTpl),
 			entityPath,
-			"wakatime-cli",
+			"hackatime-cli",
 			subfolders,
 			heartbeat.UserAgent(ctx, ""),
 		)
@@ -241,7 +241,7 @@ func TestSendHeartbeats_SecondaryApiKey(t *testing.T) {
 		"--lines-in-file", "100",
 		"--time", "1585598059",
 		"--hide-branch-names", ".*",
-		"--project", "wakatime-cli",
+		"--project", "hackatime-cli",
 		"--write",
 		"--verbose",
 		"--sync-ai-disabled",
@@ -773,11 +773,11 @@ func TestSendHeartbeats_WakatimeProjectFile(t *testing.T) {
 	// tmpDir/
 	//   my-company/
 	//     .wakatime-project (contains "my-company/{project}")
-	//     wakatime-cli/     <- git repo
+	//     hackatime-cli/     <- git repo
 	//       .git/
 	//       src/
 	//         main.go
-	gitRepoDir := filepath.Join(tmpDir, "my-company", "wakatime-cli")
+	gitRepoDir := filepath.Join(tmpDir, "my-company", "hackatime-cli")
 	srcDir := filepath.Join(gitRepoDir, "src")
 
 	err := os.MkdirAll(srcDir, os.FileMode(int(0700)))
@@ -798,7 +798,7 @@ func TestSendHeartbeats_WakatimeProjectFile(t *testing.T) {
 	require.NoError(t, err)
 
 	// The project folder is the directory containing .wakatime-project (my-company/),
-	// not the git repository folder (my-company/wakatime-cli/)
+	// not the git repository folder (my-company/hackatime-cli/)
 	wakatimeProjectDir := filepath.Join(tmpDir, "my-company")
 	projectPath, err := realpath.Realpath(wakatimeProjectDir)
 	require.NoError(t, err)
@@ -824,7 +824,7 @@ func TestSendHeartbeats_WakatimeProjectFile(t *testing.T) {
 		expectedBody := fmt.Sprintf(
 			string(expectedBodyTpl),
 			entityPathFormatted,
-			"my-company/wakatime-cli",
+			"my-company/hackatime-cli",
 			subfolders,
 			heartbeat.UserAgent(ctx, ""),
 		)
@@ -958,7 +958,7 @@ func TestSendHeartbeats_Timeout(t *testing.T) {
 		"--lines-in-file", "100",
 		"--time", "1585598059",
 		"--hide-branch-names", ".*",
-		"--project", "wakatime-cli",
+		"--project", "hackatime-cli",
 		"--project-folder", projectFolder,
 		"--timeout", "1", // very short timeout to force a timeout error
 		"--write",
@@ -1109,7 +1109,7 @@ func TestSendHeartbeats_ExtraHeartbeats(t *testing.T) {
 		"--lines-in-file", "100",
 		"--time", "1585598200",
 		"--hide-branch-names", ".*",
-		"--project", "wakatime-cli",
+		"--project", "hackatime-cli",
 		"--project-folder", projectFolder,
 		"--write",
 		"--verbose",
@@ -1300,7 +1300,7 @@ func TestSendHeartbeats_ExtraHeartbeats_SyncLegacyOfflineActivity(t *testing.T) 
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -1422,7 +1422,7 @@ func TestSendHeartbeats_SyncOfflineActivity(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -1527,7 +1527,7 @@ func TestSendHeartbeats_SyncOfflineActivityError(t *testing.T) {
 
 	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{
 		{
-			ID:        "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+			ID:        "1592868367.219124-file-coding-hackatime-cli-heartbeat-/tmp/main.go-true",
 			Heartbeat: string(dataGo),
 		},
 		{
@@ -1611,7 +1611,7 @@ func TestSendHeartbeats_Err(t *testing.T) {
 		expectedBody := fmt.Sprintf(
 			string(expectedBodyTpl),
 			entityPath,
-			"wakatime-cli",
+			"hackatime-cli",
 			subfolders,
 			heartbeat.UserAgent(ctx, ""),
 		)
@@ -1665,7 +1665,7 @@ func TestSendHeartbeats_Err(t *testing.T) {
 		"--lines-in-file", "100",
 		"--time", "1585598059",
 		"--hide-branch-names", ".*",
-		"--project", "wakatime-cli",
+		"--project", "hackatime-cli",
 		"--write",
 		"--verbose",
 		"--sync-ai-disabled",
@@ -1726,7 +1726,7 @@ func TestSendHeartbeats_ErrAuth_InvalidAPIKEY(t *testing.T) {
 		"--lines-in-file", "100",
 		"--time", "1585598059",
 		"--hide-branch-names", ".*",
-		"--project", "wakatime-cli",
+		"--project", "hackatime-cli",
 		"--write",
 		"--verbose",
 		"--sync-ai-disabled",
@@ -1937,7 +1937,7 @@ func TestFileExperts(t *testing.T) {
 			expectedBody := fmt.Sprintf(
 				string(expectedBodyTpl),
 				entityPath,
-				"wakatime-cli",
+				"hackatime-cli",
 				subfolders,
 			)
 
@@ -2243,7 +2243,7 @@ func TestPrintOfflineHeartbeats(t *testing.T) {
 		"--lines-in-file", "100",
 		"--time", "1585598059",
 		"--hide-branch-names", ".*",
-		"--project", "wakatime-cli",
+		"--project", "hackatime-cli",
 		"--write",
 		"--verbose",
 		"--sync-ai-disabled",
@@ -2307,7 +2307,7 @@ func TestVersionVerbose(t *testing.T) {
 	out := runWakatimeCli(t, &bytes.Buffer{}, "--version", "--verbose")
 
 	assert.Regexp(t, regexp.MustCompile(fmt.Sprintf(
-		"wakatime-cli\n  Version: <local-build>\n  Commit: [0-9a-f]{7}\n  Built: [0-9-:T]{19} UTC\n  OS/Arch: %s/%s\n",
+		"hackatime-cli\n  Version: <local-build>\n  Commit: [0-9a-f]{7}\n  Built: [0-9-:T]{19} UTC\n  OS/Arch: %s/%s\n",
 		runtime.GOOS,
 		runtime.GOARCH,
 	)), out)
@@ -2342,7 +2342,7 @@ func TestMultipleRunners(t *testing.T) {
 }
 
 func binaryPath(t *testing.T) string {
-	filename := fmt.Sprintf("./build/wakatime-cli-%s-%s", runtime.GOOS, runtime.GOARCH)
+	filename := fmt.Sprintf("./build/hackatime-cli-%s-%s", runtime.GOOS, runtime.GOARCH)
 
 	switch runtime.GOOS {
 	case "darwin", "linux", "freebsd", "netbsd", "openbsd":

@@ -3,6 +3,7 @@ package ini
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -100,11 +101,36 @@ func NewWriter(
 
 // Write persists key(s) and value(s) on disk.
 func (w *WriterConfig) Write(ctx context.Context, section string, keyValue map[string]string) error {
-	logger := log.Extract(ctx)
-
 	if w.File == nil || w.ConfigFilepath == "" {
 		return errors.New("got undefined wakatime config file instance")
 	}
+
+	releaser, err := mutex.Acquire(mutex.Spec{
+		Name:    configMutexName(w.ConfigFilepath),
+		Delay:   time.Millisecond,
+		Timeout: defaultTimeout,
+		Clock:   &mutexClock{},
+		Cancel:  ctx.Done(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to acquire config file mutex: %s", err)
+	}
+
+	defer func() {
+		if releaser != nil {
+			releaser.Release()
+		}
+	}()
+
+	file, err := ini.LoadSources(ini.LoadOptions{
+		AllowPythonMultilineValues: true,
+		SkipUnrecognizableLines:    true,
+	}, w.ConfigFilepath)
+	if err != nil {
+		return fmt.Errorf("failed to reload config file before write: %s", err)
+	}
+
+	w.File = file
 
 	for key, value := range keyValue {
 		// prevent writing null characters
@@ -114,27 +140,26 @@ func (w *WriterConfig) Write(ctx context.Context, section string, keyValue map[s
 		w.File.Section(section).Key(key).SetValue(value)
 	}
 
-	releaser, err := mutex.Acquire(mutex.Spec{
-		Name:    "wakatime-cli-config-mutex",
-		Delay:   time.Millisecond,
-		Timeout: defaultTimeout,
-		Clock:   &mutexClock{delay: time.Millisecond},
-	})
-	if err != nil {
-		logger.Debugf("failed to acquire mutex: %s", err)
-	}
-
-	defer func() {
-		if releaser != nil {
-			releaser.Release()
-		}
-	}()
-
 	if err := w.File.SaveTo(w.ConfigFilepath); err != nil {
 		return fmt.Errorf("error saving wakatime config: %s", err)
 	}
 
 	return nil
+}
+
+func configMutexName(configFilepath string) string {
+	abs, err := filepath.Abs(configFilepath)
+	if err != nil {
+		abs = configFilepath
+	}
+
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err == nil {
+		abs = resolved
+	}
+
+	sum := sha256.Sum256([]byte(strings.ToLower(abs)))
+	return fmt.Sprintf("hackatime-cli-config-%x", sum[:8])
 }
 
 // ReadInConfig reads wakatime config file in memory.
@@ -325,12 +350,10 @@ func WakaResourcesDir(ctx context.Context) (string, error) {
 }
 
 // mutexClock is used to implement mutex.Clock interface.
-type mutexClock struct {
-	delay time.Duration
-}
+type mutexClock struct{}
 
-func (mc *mutexClock) After(time.Duration) <-chan time.Time {
-	return time.After(mc.delay)
+func (*mutexClock) After(d time.Duration) <-chan time.Time {
+	return time.After(d)
 }
 
 func (*mutexClock) Now() time.Time {

@@ -1,1 +1,1 @@
-my $string = "wakatime-cli"; 
+my $string = "hackatime-cli"; 
