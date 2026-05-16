@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/language"
-	"github.com/wakatime/wakatime-cli/pkg/lexer"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/language"
+	"github.com/hackclub/hackatime-cli/pkg/lexer"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

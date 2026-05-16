@@ -3,7 +3,7 @@ package log_test
 import (
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 
 	"github.com/stretchr/testify/assert"
 )

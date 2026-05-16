@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/deps"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/regex"
+	"github.com/hackclub/hackatime-cli/pkg/deps"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/regex"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +21,7 @@ func TestWithDetection(t *testing.T) {
 			{
 				Dependencies: []string{
 					"os",
-					"github.com/wakatime/wakatime-cli/pkg/heartbeat",
+					"github.com/hackclub/hackatime-cli/pkg/heartbeat",
 				},
 				Entity:     "testdata/golang_minimal.go",
 				EntityType: heartbeat.FileType,
@@ -87,7 +87,7 @@ func TestWithDetection_LocalFile(t *testing.T) {
 			{
 				Dependencies: []string{
 					"os",
-					"github.com/wakatime/wakatime-cli/pkg/heartbeat",
+					"github.com/hackclub/hackatime-cli/pkg/heartbeat",
 				},
 				Entity:     "testdata/golang.go",
 				EntityType: heartbeat.FileType,
@@ -182,7 +182,7 @@ func TestDetect(t *testing.T) {
 			Language: heartbeat.LanguageGo,
 			Dependencies: []string{
 				"os",
-				"github.com/wakatime/wakatime-cli/pkg/heartbeat",
+				"github.com/hackclub/hackatime-cli/pkg/heartbeat",
 			},
 		},
 		"haskell": {

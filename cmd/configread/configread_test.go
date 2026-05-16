@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/cmd/configread"
+	"github.com/hackclub/hackatime-cli/cmd/configread"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"

@@ -3,7 +3,7 @@ package output_test
 import (
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/output"
+	"github.com/hackclub/hackatime-cli/pkg/output"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

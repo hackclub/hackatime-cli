@@ -8,7 +8,7 @@ load 'libs/bats-assert/load'
     run ./bin/prepare_changelog.sh "develop" "${changelog}"
     assert_success
     assert_line -n 0 "::set-output name=changelog::'%0A'8bb1d12 Break single quote for replace string'%0A'0b138bb Ensure error response parsing for 4xx and 5xx heartbeat response errors"
-    assert_line -n 1 "::set-output name=slack::*Changelog*\n<https://github.com/wakatime/wakatime-cli/commit/8bb1d12|8bb1d12> Break single quote for replace string\n<https://github.com/wakatime/wakatime-cli/commit/0b138bb|0b138bb> Ensure error response parsing for 4xx and 5xx heartbeat response errors\n"
+    assert_line -n 1 "::set-output name=slack::*Changelog*\n<https://github.com/hackclub/hackatime-cli/commit/8bb1d12|8bb1d12> Break single quote for replace string\n<https://github.com/hackclub/hackatime-cli/commit/0b138bb|0b138bb> Ensure error response parsing for 4xx and 5xx heartbeat response errors\n"
 }
 
 @test "changelog for release" {

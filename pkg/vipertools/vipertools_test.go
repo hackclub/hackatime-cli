@@ -3,7 +3,7 @@ package vipertools_test
 import (
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"

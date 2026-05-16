@@ -10,7 +10,7 @@ Prerequisites:
 
 - We use `make` to build and run tests
 - We use [bats](https://bats-core.readthedocs.io/en/latest/installation.html) to test shell scripts. (`brew install bats-core`)
-- We use the [Go](https://golang.org/doc/install) version listed in [go.mod](https://github.com/wakatime/wakatime-cli/blob/develop/go.mod#L3)
+- We use the [Go](https://golang.org/doc/install) version listed in [go.mod](https://github.com/hackclub/hackatime-cli/blob/develop/go.mod#L3)
 
 After cloning, install dependencies with `make install` then build with `make`.
 
@@ -42,7 +42,7 @@ Run `make test-all` before creating any pull requests, or your PR won’t pass t
 ## Pull Requests
 
 - Big changes, changes to the API, or changes with backward compatibility trade-offs should be first discussed in the Slack.
-- Search [existing pull requests](https://github.com/wakatime/wakatime-cli/pulls) to see if one has already been submitted for this change. Search the [issues](https://github.com/wakatime/wakatime-cli/issues?q=is%3Aissue) to see if there has been a discussion on this topic and whether your pull request can close any issues.
+- Search [existing pull requests](https://github.com/hackclub/hackatime-cli/pulls) to see if one has already been submitted for this change. Search the [issues](https://github.com/hackclub/hackatime-cli/issues?q=is%3Aissue) to see if there has been a discussion on this topic and whether your pull request can close any issues.
 - Code formatting should be consistent with the style used in the existing code.
 - Don't leave commented out code. A record of this code is already preserved in the commit history.
 - All commits must be atomic. This means that the commit completely accomplishes a single task. Each commit should result in fully functional code. Multiple tasks should not be combined in a single commit, but a single task should not be split over multiple commits (e.g. one commit per file modified is not a good practice). For more information see <http://www.freshconsulting.com/atomic-commits>.

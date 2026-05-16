@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/cmd/offlinecount"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/cmd/offlinecount"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"

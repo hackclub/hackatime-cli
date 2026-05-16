@@ -3,7 +3,7 @@ package language
 import (
 	"strings"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
 )
 
 // detectFSharpFromContents tries to detect the language from the file contents.

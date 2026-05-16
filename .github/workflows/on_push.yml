@@ -730,7 +730,7 @@ jobs:
                   type: 'section',
                   text: {
                     type: 'mrkdwn',
-                    text: `New <https://github.com/wakatime/wakatime-cli|wakatime-cli> version <https://github.com/wakatime/wakatime-cli/releases/tag/${{ needs.version.outputs.semver_tag }}|${{ needs.version.outputs.semver_tag }}> released`
+                    text: `New <https://github.com/hackclub/hackatime-cli|wakatime-cli> version <https://github.com/hackclub/hackatime-cli/releases/tag/${{ needs.version.outputs.semver_tag }}|${{ needs.version.outputs.semver_tag }}> released`
                   }
                 },
                 {

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/api"
-	"github.com/wakatime/wakatime-cli/pkg/version"
+	"github.com/hackclub/hackatime-cli/pkg/api"
+	"github.com/hackclub/hackatime-cli/pkg/version"
 
 	"github.com/Azure/go-ntlmssp"
 	"github.com/matishsiao/goInfo"

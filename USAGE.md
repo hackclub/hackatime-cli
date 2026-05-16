@@ -206,7 +206,7 @@ The priority of projects detection is:
 
 4. IDE project
 
-See the [source code](https://github.com/wakatime/wakatime-cli/blob/36f6372880d7113382e99453c2b94ff727788ae2/pkg/project/project.go#L145) for specifics.
+See the [source code](https://github.com/hackclub/hackatime-cli/blob/36f6372880d7113382e99453c2b94ff727788ae2/pkg/project/project.go#L145) for specifics.
 
 ### WakaTime Project File
 

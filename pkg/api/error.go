@@ -3,8 +3,8 @@ package api
 import (
 	"fmt"
 
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/wakaerror"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/wakaerror"
 
 	"go.uber.org/zap/zapcore"
 )

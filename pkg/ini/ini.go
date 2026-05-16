@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 
 	"github.com/juju/mutex"
 	"github.com/mitchellh/go-homedir"
@@ -224,7 +224,7 @@ func FilePath(ctx context.Context, v *viper.Viper) (string, error) {
 
 // ImportFilePath returns the path for custom wakatime config file.
 // It's used to keep the api key out ofthe home folder, and usually it's to avoid backing up sensitive wakatime config file.
-// https://github.com/wakatime/wakatime-cli/issues/464
+// https://github.com/hackclub/hackatime-cli/issues/464
 func ImportFilePath(_ context.Context, v *viper.Viper) (string, error) {
 	configFilepath := vipertools.GetString(v, "settings.import_cfg")
 	if configFilepath != "" {

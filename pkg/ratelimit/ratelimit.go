@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
 
 	"github.com/spf13/viper"
 )

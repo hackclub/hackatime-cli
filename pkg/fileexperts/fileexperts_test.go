@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/fileexperts"
-	"github.com/wakatime/wakatime-cli/pkg/output"
+	"github.com/hackclub/hackatime-cli/pkg/fileexperts"
+	"github.com/hackclub/hackatime-cli/pkg/output"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

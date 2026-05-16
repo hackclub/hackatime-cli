@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
 
 	"github.com/stretchr/testify/assert"
 )

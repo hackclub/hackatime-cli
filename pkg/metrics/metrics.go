@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 // StartProfiling starts profiling cpu and memory. It returns a function that

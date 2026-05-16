@@ -1,4 +1,4 @@
-module github.com/wakatime/wakatime-cli
+module github.com/hackclub/hackatime-cli
 
 go 1.26.3
 

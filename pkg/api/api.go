@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 const (

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/output"
-	"github.com/wakatime/wakatime-cli/pkg/summary"
+	"github.com/hackclub/hackatime-cli/pkg/output"
+	"github.com/hackclub/hackatime-cli/pkg/summary"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

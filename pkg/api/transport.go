@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 const (

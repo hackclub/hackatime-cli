@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

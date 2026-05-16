@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/cmd/today"
-	"github.com/wakatime/wakatime-cli/pkg/api"
+	"github.com/hackclub/hackatime-cli/cmd/today"
+	"github.com/hackclub/hackatime-cli/pkg/api"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"

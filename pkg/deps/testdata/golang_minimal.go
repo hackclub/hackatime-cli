@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
 )
 
 func main() {

@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/project"
-	"github.com/wakatime/wakatime-cli/pkg/regex"
+	"github.com/hackclub/hackatime-cli/pkg/project"
+	"github.com/hackclub/hackatime-cli/pkg/regex"
 
 	"github.com/gandarez/go-realpath"
 	"github.com/stretchr/testify/assert"

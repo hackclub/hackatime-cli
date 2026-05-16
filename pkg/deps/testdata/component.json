@@ -1,6 +1,6 @@
 {
     "name": "wakatime",
-    "repository": "wakatime/wakatime-cli",
+    "repository": "hackclub/hackatime-cli",
     "description": "WakaTime Cli",
     "version": "1.0.0",
     "dependencies": {

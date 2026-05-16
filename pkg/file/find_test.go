@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/file"
+	"github.com/hackclub/hackatime-cli/pkg/file"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

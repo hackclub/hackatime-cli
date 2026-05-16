@@ -8,9 +8,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/project"
-	"github.com/wakatime/wakatime-cli/pkg/regex"
-	"github.com/wakatime/wakatime-cli/pkg/windows"
+	"github.com/hackclub/hackatime-cli/pkg/project"
+	"github.com/hackclub/hackatime-cli/pkg/regex"
+	"github.com/hackclub/hackatime-cli/pkg/windows"
 
 	"github.com/gandarez/go-realpath"
 	"github.com/stretchr/testify/assert"
@@ -171,7 +171,7 @@ func TestGit_Detect_WorktreeGitRemote(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "wakatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "wakatime/wakatime-cli",
+		Project: "hackclub/hackatime-cli",
 		Branch:  "feature/api",
 		Folder:  result.Folder,
 	}, result)
@@ -210,7 +210,7 @@ func TestGit_Detect_WorktreeGitRemote_BareRepo(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "wakatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "wakatime/wakatime-cli",
+		Project: "hackclub/hackatime-cli",
 		Branch:  "feature/api",
 		Folder:  result.Folder,
 	}, result)

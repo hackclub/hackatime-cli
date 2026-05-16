@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 // Category represents a heartbeat category.
