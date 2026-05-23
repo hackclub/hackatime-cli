@@ -257,9 +257,13 @@ func WithDetection(config Config) heartbeat.HandleOption {
 				hh[n].Branch = &result.Branch
 				if result.Repository != "" {
 					hh[n].Repository = &result.Repository
+				} else {
+					hh[n].Repository = nil
 				}
 				if result.RepositoryDescription != "" {
 					hh[n].RepositoryDescription = &result.RepositoryDescription
+				} else {
+					hh[n].RepositoryDescription = nil
 				}
 				hh[n].ProjectPath = result.Folder
 			}

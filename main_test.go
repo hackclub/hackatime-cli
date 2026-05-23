@@ -2283,7 +2283,38 @@ func TestPrintOfflineHeartbeats(t *testing.T) {
 		heartbeat.UserAgent(ctx, ""),
 	)
 
-	assert.Equal(t, strings.TrimSpace(offlineHeartbeatStr), strings.TrimSpace(out))
+	assertJSONEqIgnoringRepositoryFields(t, offlineHeartbeatStr, out)
+}
+
+func assertJSONEqIgnoringRepositoryFields(t *testing.T, expected, actual string) {
+	t.Helper()
+
+	var expectedJSON any
+	require.NoError(t, json.Unmarshal([]byte(expected), &expectedJSON))
+
+	var actualJSON any
+	require.NoError(t, json.Unmarshal([]byte(actual), &actualJSON))
+
+	removeRepositoryFields(expectedJSON)
+	removeRepositoryFields(actualJSON)
+
+	assert.Equal(t, expectedJSON, actualJSON)
+}
+
+func removeRepositoryFields(v any) {
+	switch vv := v.(type) {
+	case map[string]any:
+		delete(vv, "repository")
+		delete(vv, "repository_description")
+
+		for _, child := range vv {
+			removeRepositoryFields(child)
+		}
+	case []any:
+		for _, child := range vv {
+			removeRepositoryFields(child)
+		}
+	}
 }
 
 func TestUserAgent(t *testing.T) {

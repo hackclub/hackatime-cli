@@ -543,6 +543,53 @@ func TestWithDetection_ObfuscateProject(t *testing.T) {
 	assert.FileExists(t, filepath.Join(fp, "hackatime-cli/.wakatime-project"))
 }
 
+func TestWithDetection_ObfuscateProjectClearsExistingRepository(t *testing.T) {
+	fp := setupTestGitBasic(t)
+
+	ctx := t.Context()
+
+	entity := filepath.Join(fp, "hackatime-cli/src/pkg/file.go")
+	projectPath := filepath.Join(fp, "hackatime-cli")
+	projectPath = project.FormatProjectFolder(ctx, projectPath)
+
+	if runtime.GOOS == "windows" {
+		entity = windows.FormatFilePath(entity)
+	}
+
+	opt := project.WithDetection(project.Config{
+		HideProjectNames: []regex.Regex{regex.MustCompile(".*")},
+	})
+
+	handle := opt(func(_ context.Context, hh []heartbeat.Heartbeat) ([]heartbeat.Result, error) {
+		assert.Equal(t, []heartbeat.Heartbeat{
+			{
+				Branch:           heartbeat.PointerTo("master"),
+				Entity:           entity,
+				EntityType:       heartbeat.FileType,
+				Project:          hh[0].Project,
+				ProjectPath:      projectPath,
+				ProjectRootCount: heartbeat.PointerTo(project.CountSlashesInProjectFolder(projectPath)),
+			},
+		}, hh)
+
+		return nil, nil
+	})
+
+	_, err := handle(ctx, []heartbeat.Heartbeat{
+		{
+			EntityType: heartbeat.FileType,
+			Entity:     entity,
+			Repository: heartbeat.PointerTo(
+				testProjectGitBasicRepository,
+			),
+			RepositoryDescription: heartbeat.PointerTo(
+				testProjectGitBasicRepositoryDescription,
+			),
+		},
+	})
+	require.NoError(t, err)
+}
+
 func TestDetect_FileDetected(t *testing.T) {
 	tmpDir, err := realpath.Realpath(t.TempDir())
 	require.NoError(t, err)
