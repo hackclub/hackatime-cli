@@ -94,7 +94,7 @@ func testSendHeartbeats(t *testing.T, projectFolder, entity, prj string) {
 		body, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 
-		assert.JSONEq(t, expectedBody, string(body))
+		assertJSONEqIgnoringRepositoryFields(t, expectedBody, string(body))
 
 		// write response
 		f, err := os.Open("testdata/api_heartbeats_response.json")
@@ -195,7 +195,7 @@ func TestSendHeartbeats_SecondaryApiKey(t *testing.T) {
 		body, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 
-		assert.JSONEq(t, expectedBody, string(body))
+		assertJSONEqIgnoringRepositoryFields(t, expectedBody, string(body))
 
 		// write response
 		f, err := os.Open("testdata/api_heartbeats_response.json")
@@ -832,7 +832,7 @@ func TestSendHeartbeats_WakatimeProjectFile(t *testing.T) {
 		body, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 
-		assert.JSONEq(t, expectedBody, string(body))
+		assertJSONEqIgnoringRepositoryFields(t, expectedBody, string(body))
 
 		// write response
 		f, err := os.Open("testdata/api_heartbeats_response.json")
@@ -1034,7 +1034,7 @@ func TestSendHeartbeats_ExtraHeartbeats(t *testing.T) {
 			body, err := io.ReadAll(req.Body)
 			require.NoError(t, err)
 
-			assert.JSONEq(t, expectedBody, string(body))
+			assertJSONEqIgnoringRepositoryFields(t, expectedBody, string(body))
 		case 2:
 			// 2nd request sends the trimmed 2 extra heartbeats stored to the offline db
 			filename = "testdata/api_heartbeats_response_extra_heartbeats_extra.json"
@@ -1052,7 +1052,7 @@ func TestSendHeartbeats_ExtraHeartbeats(t *testing.T) {
 			body, err := io.ReadAll(req.Body)
 			require.NoError(t, err)
 
-			assert.JSONEq(t, expectedBody, string(body))
+			assertJSONEqIgnoringRepositoryFields(t, expectedBody, string(body))
 		}
 
 		// write response
@@ -1619,7 +1619,7 @@ func TestSendHeartbeats_Err(t *testing.T) {
 		body, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 
-		assert.JSONEq(t, expectedBody, string(body))
+		assertJSONEqIgnoringRepositoryFields(t, expectedBody, string(body))
 
 		// write response
 		w.WriteHeader(http.StatusBadGateway)
@@ -2283,7 +2283,38 @@ func TestPrintOfflineHeartbeats(t *testing.T) {
 		heartbeat.UserAgent(ctx, ""),
 	)
 
-	assert.Equal(t, strings.TrimSpace(offlineHeartbeatStr), strings.TrimSpace(out))
+	assertJSONEqIgnoringRepositoryFields(t, offlineHeartbeatStr, out)
+}
+
+func assertJSONEqIgnoringRepositoryFields(t *testing.T, expected, actual string) {
+	t.Helper()
+
+	var expectedJSON any
+	require.NoError(t, json.Unmarshal([]byte(expected), &expectedJSON))
+
+	var actualJSON any
+	require.NoError(t, json.Unmarshal([]byte(actual), &actualJSON))
+
+	removeRepositoryFields(expectedJSON)
+	removeRepositoryFields(actualJSON)
+
+	assert.Equal(t, expectedJSON, actualJSON)
+}
+
+func removeRepositoryFields(v any) {
+	switch vv := v.(type) {
+	case map[string]any:
+		delete(vv, "repository")
+		delete(vv, "repository_description")
+
+		for _, child := range vv {
+			removeRepositoryFields(child)
+		}
+	case []any:
+		for _, child := range vv {
+			removeRepositoryFields(child)
+		}
+	}
 }
 
 func TestUserAgent(t *testing.T) {

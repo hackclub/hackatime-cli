@@ -3,13 +3,22 @@ package project
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/hackclub/hackatime-cli/pkg/file"
 	"github.com/hackclub/hackatime-cli/pkg/log"
 	"github.com/hackclub/hackatime-cli/pkg/regex"
 )
+
+var scpLikeRemoteRegex = regexp.MustCompile(`^[^/@:]+@[^:]+:.+$`)
+
+type gitRemote struct {
+	Repository            string
+	RepositoryDescription string
+}
 
 // Git contains git data.
 type Git struct {
@@ -36,7 +45,8 @@ func (g Git) Detect(ctx context.Context) (Result, bool, error) {
 	}
 
 	if ok {
-		project := projectOrRemote(ctx, filepath.Base(gitdirSubmodule), g.ProjectFromGitRemote, gitdirSubmodule)
+		remote := readGitRemote(ctx, gitdirSubmodule)
+		project := projectOrRemote(filepath.Base(gitdirSubmodule), g.ProjectFromGitRemote, remote)
 
 		// If submodule has a project map, then use it.
 		if result, ok := matchPattern(ctx, gitdirSubmodule, g.SubmoduleProjectMapPatterns); ok {
@@ -53,9 +63,11 @@ func (g Git) Detect(ctx context.Context) (Result, bool, error) {
 		}
 
 		return Result{
-			Project: project,
-			Branch:  branch,
-			Folder:  filepath.Dir(gitdirSubmodule),
+			Project:               project,
+			Branch:                branch,
+			Folder:                filepath.Dir(gitdirSubmodule),
+			Repository:            remote.Repository,
+			RepositoryDescription: remote.RepositoryDescription,
 		}, true, nil
 	}
 
@@ -91,7 +103,8 @@ func (g Git) Detect(ctx context.Context) (Result, bool, error) {
 			dir = commondir
 		}
 
-		project := projectOrRemote(ctx, filepath.Base(dir), g.ProjectFromGitRemote, commondir)
+		remote := readGitRemote(ctx, commondir)
+		project := projectOrRemote(filepath.Base(dir), g.ProjectFromGitRemote, remote)
 
 		branch, err := findGitBranch(ctx, filepath.Join(gitdir, "HEAD"))
 		if err != nil {
@@ -103,15 +116,18 @@ func (g Git) Detect(ctx context.Context) (Result, bool, error) {
 		}
 
 		return Result{
-			Project: project,
-			Branch:  branch,
-			Folder:  dir,
+			Project:               project,
+			Branch:                branch,
+			Folder:                dir,
+			Repository:            remote.Repository,
+			RepositoryDescription: remote.RepositoryDescription,
 		}, true, nil
 	}
 
 	// Otherwise it's only a plain .git file and not a submodule
 	if gitdir != "" && !strings.Contains(gitdir, "modules") {
-		project := projectOrRemote(ctx, filepath.Base(filepath.Join(dotGit, "..")), g.ProjectFromGitRemote, gitdir)
+		remote := readGitRemote(ctx, gitdir)
+		project := projectOrRemote(filepath.Base(filepath.Join(dotGit, "..")), g.ProjectFromGitRemote, remote)
 
 		branch, err := findGitBranch(ctx, filepath.Join(gitdir, "HEAD"))
 		if err != nil {
@@ -123,9 +139,11 @@ func (g Git) Detect(ctx context.Context) (Result, bool, error) {
 		}
 
 		return Result{
-			Project: project,
-			Branch:  branch,
-			Folder:  filepath.Join(gitdir, ".."),
+			Project:               project,
+			Branch:                branch,
+			Folder:                filepath.Join(gitdir, ".."),
+			Repository:            remote.Repository,
+			RepositoryDescription: remote.RepositoryDescription,
 		}, true, nil
 	}
 
@@ -145,12 +163,15 @@ func (g Git) Detect(ctx context.Context) (Result, bool, error) {
 			)
 		}
 
-		project := projectOrRemote(ctx, filepath.Base(projectDir), g.ProjectFromGitRemote, gitDir)
+		remote := readGitRemote(ctx, gitDir)
+		project := projectOrRemote(filepath.Base(projectDir), g.ProjectFromGitRemote, remote)
 
 		return Result{
-			Project: project,
-			Branch:  branch,
-			Folder:  projectDir,
+			Project:               project,
+			Branch:                branch,
+			Folder:                projectDir,
+			Repository:            remote.Repository,
+			RepositoryDescription: remote.RepositoryDescription,
 		}, true, nil
 	}
 
@@ -256,28 +277,6 @@ func resolveCommondir(ctx context.Context, fp string) (string, bool, error) {
 	return gitdir, true, nil
 }
 
-func projectOrRemote(ctx context.Context, projectName string, projectFromGitRemote bool, dotGitFolder string) string {
-	if !projectFromGitRemote {
-		return projectName
-	}
-
-	logger := log.Extract(ctx)
-	configFile := filepath.Join(dotGitFolder, "config")
-
-	remote, err := findGitRemote(ctx, configFile)
-	if err != nil {
-		logger.Errorf("error finding git remote from %q: %s", configFile, err)
-
-		return projectName
-	}
-
-	if remote != "" {
-		return remote
-	}
-
-	return projectName
-}
-
 func findGitBranch(ctx context.Context, fp string) (string, error) {
 	if !fileOrDirExists(fp) {
 		return "master", nil
@@ -304,7 +303,36 @@ func findGitBranch(ctx context.Context, fp string) (string, error) {
 	return "", nil
 }
 
-func findGitRemote(ctx context.Context, fp string) (string, error) {
+func projectOrRemote(projectName string, projectFromGitRemote bool, remote gitRemote) string {
+	if projectFromGitRemote && remote.RepositoryDescription != "" {
+		return remote.RepositoryDescription
+	}
+
+	return projectName
+}
+
+func readGitRemote(ctx context.Context, dotGitFolder string) gitRemote {
+	logger := log.Extract(ctx)
+	configFile := filepath.Join(dotGitFolder, "config")
+
+	remoteURL, err := findGitRemoteURL(ctx, configFile)
+	if err != nil {
+		logger.Errorf("error finding git remote from %q: %s", configFile, err)
+
+		return gitRemote{}
+	}
+
+	remote, err := parseGitRemote(remoteURL)
+	if err != nil {
+		logger.Errorf("error parsing git remote %q from %q: %s", remoteURL, configFile, err)
+
+		return gitRemote{}
+	}
+
+	return remote
+}
+
+func findGitRemoteURL(ctx context.Context, fp string) (string, error) {
 	if !fileOrDirExists(fp) {
 		return "", nil
 	}
@@ -336,19 +364,60 @@ func findGitRemote(ctx context.Context, fp string) (string, error) {
 					return "", fmt.Errorf("invalid origin url from %q: %s", fp, subline)
 				}
 
-				remote = parts[1]
-
-				parts = strings.SplitN(remote, ":", 2)
-				if len(parts) != 2 {
-					return "", fmt.Errorf("invalid origin url from %q: %s", fp, subline)
-				}
-
-				return strings.TrimSpace(strings.TrimSuffix(parts[1], ".git")), nil
+				return strings.TrimSpace(parts[1]), nil
 			}
 		}
 	}
 
 	return "", nil
+}
+
+func parseGitRemote(remoteURL string) (gitRemote, error) {
+	remoteURL = strings.TrimSpace(remoteURL)
+	if remoteURL == "" {
+		return gitRemote{}, nil
+	}
+
+	if scpLikeRemoteRegex.MatchString(remoteURL) {
+		parts := strings.SplitN(remoteURL, ":", 2)
+		hostParts := strings.SplitN(parts[0], "@", 2)
+		host := hostParts[len(hostParts)-1]
+
+		return gitRemoteFromHostPath(host, parts[1]), nil
+	}
+
+	parsed, err := url.Parse(remoteURL)
+	if err != nil {
+		return gitRemote{}, fmt.Errorf("invalid remote URL: %w", err)
+	}
+
+	if parsed.Scheme == "" && parsed.Host == "" {
+		return gitRemoteFromHostPath("", remoteURL), nil
+	}
+
+	return gitRemoteFromHostPath(parsed.Host, parsed.Path), nil
+}
+
+func gitRemoteFromHostPath(host, path string) gitRemote {
+	host = strings.TrimSpace(host)
+	path = strings.Trim(strings.TrimSpace(path), "/")
+	path = strings.TrimSuffix(path, ".git")
+
+	if path == "" {
+		return gitRemote{}
+	}
+
+	if host == "" {
+		return gitRemote{
+			Repository:            path,
+			RepositoryDescription: path,
+		}
+	}
+
+	return gitRemote{
+		Repository:            "https://" + host + "/" + path,
+		RepositoryDescription: path,
+	}
 }
 
 // ID returns its id.

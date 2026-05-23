@@ -17,6 +17,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testGitBasicRepository            = "https://github.com/hackclub/hackatime-cli"
+	testGitBasicRepositoryDescription = "hackclub/hackatime-cli"
+	testGitSubmoduleRepository        = "https://github.com/wakatime/billing"
+	testGitSubmoduleDescription       = "wakatime/billing"
+)
+
 func TestGit_Detect(t *testing.T) {
 	fp := setupTestGitBasic(t)
 
@@ -30,9 +37,11 @@ func TestGit_Detect(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "hackatime-cli",
-		Branch:  "master",
-		Folder:  result.Folder,
+		Project:               "hackatime-cli",
+		Branch:                "master",
+		Folder:                result.Folder,
+		Repository:            testGitBasicRepository,
+		RepositoryDescription: testGitBasicRepositoryDescription,
 	}, result)
 }
 
@@ -49,9 +58,11 @@ func TestGit_Detect_BranchWithSlash(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "hackatime-cli",
-		Branch:  "feature/detection",
-		Folder:  result.Folder,
+		Project:               "hackatime-cli",
+		Branch:                "feature/detection",
+		Folder:                result.Folder,
+		Repository:            testGitBasicRepository,
+		RepositoryDescription: testGitBasicRepositoryDescription,
 	}, result)
 }
 
@@ -68,9 +79,11 @@ func TestGit_Detect_DetachedHead(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "hackatime-cli",
-		Branch:  "",
-		Folder:  result.Folder,
+		Project:               "hackatime-cli",
+		Branch:                "",
+		Folder:                result.Folder,
+		Repository:            testGitBasicRepository,
+		RepositoryDescription: testGitBasicRepositoryDescription,
 	}, result)
 }
 
@@ -107,9 +120,11 @@ func TestGit_Detect_GitConfigFile_File(t *testing.T) {
 			assert.True(t, detected)
 			assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 			assert.Equal(t, project.Result{
-				Project: test.Project,
-				Branch:  "feature/list-elements",
-				Folder:  result.Folder,
+				Project:               test.Project,
+				Branch:                "feature/list-elements",
+				Folder:                result.Folder,
+				Repository:            testGitBasicRepository,
+				RepositoryDescription: testGitBasicRepositoryDescription,
 			}, result)
 		})
 	}
@@ -132,9 +147,11 @@ func TestGit_Detect_GitConfigFile_File_MalformedHEAD(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "hackatime-cli",
-		Branch:  "",
-		Folder:  result.Folder,
+		Project:               "hackatime-cli",
+		Branch:                "",
+		Folder:                result.Folder,
+		Repository:            testGitBasicRepository,
+		RepositoryDescription: testGitBasicRepositoryDescription,
 	}, result)
 }
 
@@ -151,9 +168,11 @@ func TestGit_Detect_Worktree(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "hackatime-cli",
-		Branch:  "feature/api",
-		Folder:  result.Folder,
+		Project:               "hackatime-cli",
+		Branch:                "feature/api",
+		Folder:                result.Folder,
+		Repository:            testGitBasicRepository,
+		RepositoryDescription: testGitBasicRepositoryDescription,
 	}, result)
 }
 
@@ -171,9 +190,11 @@ func TestGit_Detect_WorktreeGitRemote(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "hackclub/hackatime-cli",
-		Branch:  "feature/api",
-		Folder:  result.Folder,
+		Project:               "hackclub/hackatime-cli",
+		Branch:                "feature/api",
+		Folder:                result.Folder,
+		Repository:            testGitBasicRepository,
+		RepositoryDescription: testGitBasicRepositoryDescription,
 	}, result)
 }
 
@@ -190,9 +211,11 @@ func TestGit_Detect_Worktree_BareRepo(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "hackatime-cli",
-		Branch:  "feature/api",
-		Folder:  result.Folder,
+		Project:               "hackatime-cli",
+		Branch:                "feature/api",
+		Folder:                result.Folder,
+		Repository:            testGitBasicRepository,
+		RepositoryDescription: testGitBasicRepositoryDescription,
 	}, result)
 }
 
@@ -210,9 +233,11 @@ func TestGit_Detect_WorktreeGitRemote_BareRepo(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "hackclub/hackatime-cli",
-		Branch:  "feature/api",
-		Folder:  result.Folder,
+		Project:               "hackclub/hackatime-cli",
+		Branch:                "feature/api",
+		Folder:                result.Folder,
+		Repository:            testGitBasicRepository,
+		RepositoryDescription: testGitBasicRepositoryDescription,
 	}, result)
 }
 
@@ -230,9 +255,11 @@ func TestGit_Detect_Submodule(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "billing",
-		Branch:  "master",
-		Folder:  result.Folder,
+		Project:               "billing",
+		Branch:                "master",
+		Folder:                result.Folder,
+		Repository:            testGitSubmoduleRepository,
+		RepositoryDescription: testGitSubmoduleDescription,
 	}, result)
 }
 
@@ -250,9 +277,11 @@ func TestGit_Detect_SubmoduleDisabled(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "hackatime-cli",
-		Branch:  "feature/billing",
-		Folder:  result.Folder,
+		Project:               "hackatime-cli",
+		Branch:                "feature/billing",
+		Folder:                result.Folder,
+		Repository:            testGitBasicRepository,
+		RepositoryDescription: testGitBasicRepositoryDescription,
 	}, result)
 }
 
@@ -275,9 +304,11 @@ func TestGit_Detect_SubmoduleProjectMap_NotMatch(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "billing",
-		Branch:  "master",
-		Folder:  result.Folder,
+		Project:               "billing",
+		Branch:                "master",
+		Folder:                result.Folder,
+		Repository:            testGitSubmoduleRepository,
+		RepositoryDescription: testGitSubmoduleDescription,
 	}, result)
 }
 
@@ -300,9 +331,11 @@ func TestGit_Detect_SubmoduleProjectMap(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "my-project-1",
-		Branch:  "master",
-		Folder:  result.Folder,
+		Project:               "my-project-1",
+		Branch:                "master",
+		Folder:                result.Folder,
+		Repository:            testGitSubmoduleRepository,
+		RepositoryDescription: testGitSubmoduleDescription,
 	}, result)
 }
 
@@ -321,9 +354,11 @@ func TestGit_Detect_SubmoduleGitRemote(t *testing.T) {
 	assert.True(t, detected)
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "wakatime/billing",
-		Branch:  "master",
-		Folder:  result.Folder,
+		Project:               "wakatime/billing",
+		Branch:                "master",
+		Folder:                result.Folder,
+		Repository:            testGitSubmoduleRepository,
+		RepositoryDescription: testGitSubmoduleDescription,
 	}, result)
 }
 

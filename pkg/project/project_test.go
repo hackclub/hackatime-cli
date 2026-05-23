@@ -19,6 +19,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testProjectGitBasicRepository            = "https://github.com/hackclub/hackatime-cli"
+	testProjectGitBasicRepositoryDescription = "hackclub/hackatime-cli"
+)
+
 func TestWithDetection_EntityNotFile(t *testing.T) {
 	ctx := t.Context()
 
@@ -163,6 +168,10 @@ func TestWithDetection_WakatimeProjectTakesPrecedence(t *testing.T) {
 					ProjectAlternate: "alternate",
 					ProjectPath:      projectPath,
 					ProjectRootCount: heartbeat.PointerTo(project.CountSlashesInProjectFolder(projectPath)),
+					Repository:       heartbeat.PointerTo(testProjectGitBasicRepository),
+					RepositoryDescription: heartbeat.PointerTo(
+						testProjectGitBasicRepositoryDescription,
+					),
 				},
 			}, hh)
 
@@ -205,6 +214,10 @@ func TestWithDetection_OverrideTakesPrecedence(t *testing.T) {
 				ProjectOverride:  "override",
 				ProjectPath:      projectPath,
 				ProjectRootCount: heartbeat.PointerTo(project.CountSlashesInProjectFolder(projectPath)),
+				Repository:       heartbeat.PointerTo(testProjectGitBasicRepository),
+				RepositoryDescription: heartbeat.PointerTo(
+					testProjectGitBasicRepositoryDescription,
+				),
 			},
 		}, hh)
 
@@ -243,6 +256,10 @@ func TestWithDetection_OverrideTakesPrecedence_WithProjectPathOverride(t *testin
 				ProjectOverride:     "override",
 				ProjectPathOverride: fp,
 				ProjectRootCount:    heartbeat.PointerTo(project.CountSlashesInProjectFolder(fp)),
+				Repository:          heartbeat.PointerTo(testProjectGitBasicRepository),
+				RepositoryDescription: heartbeat.PointerTo(
+					testProjectGitBasicRepositoryDescription,
+				),
 			},
 		}, hh)
 
@@ -526,6 +543,53 @@ func TestWithDetection_ObfuscateProject(t *testing.T) {
 	assert.FileExists(t, filepath.Join(fp, "hackatime-cli/.wakatime-project"))
 }
 
+func TestWithDetection_ObfuscateProjectClearsExistingRepository(t *testing.T) {
+	fp := setupTestGitBasic(t)
+
+	ctx := t.Context()
+
+	entity := filepath.Join(fp, "hackatime-cli/src/pkg/file.go")
+	projectPath := filepath.Join(fp, "hackatime-cli")
+	projectPath = project.FormatProjectFolder(ctx, projectPath)
+
+	if runtime.GOOS == "windows" {
+		entity = windows.FormatFilePath(entity)
+	}
+
+	opt := project.WithDetection(project.Config{
+		HideProjectNames: []regex.Regex{regex.MustCompile(".*")},
+	})
+
+	handle := opt(func(_ context.Context, hh []heartbeat.Heartbeat) ([]heartbeat.Result, error) {
+		assert.Equal(t, []heartbeat.Heartbeat{
+			{
+				Branch:           heartbeat.PointerTo("master"),
+				Entity:           entity,
+				EntityType:       heartbeat.FileType,
+				Project:          hh[0].Project,
+				ProjectPath:      projectPath,
+				ProjectRootCount: heartbeat.PointerTo(project.CountSlashesInProjectFolder(projectPath)),
+			},
+		}, hh)
+
+		return nil, nil
+	})
+
+	_, err := handle(ctx, []heartbeat.Heartbeat{
+		{
+			EntityType: heartbeat.FileType,
+			Entity:     entity,
+			Repository: heartbeat.PointerTo(
+				testProjectGitBasicRepository,
+			),
+			RepositoryDescription: heartbeat.PointerTo(
+				testProjectGitBasicRepositoryDescription,
+			),
+		},
+	})
+	require.NoError(t, err)
+}
+
 func TestDetect_FileDetected(t *testing.T) {
 	tmpDir, err := realpath.Realpath(t.TempDir())
 	require.NoError(t, err)
@@ -628,9 +692,11 @@ func TestDetectWithRevControl_GitDetected(t *testing.T) {
 
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "hackatime-cli",
-		Folder:  result.Folder,
-		Branch:  "master",
+		Project:               "hackatime-cli",
+		Folder:                result.Folder,
+		Branch:                "master",
+		Repository:            testProjectGitBasicRepository,
+		RepositoryDescription: testProjectGitBasicRepositoryDescription,
 	}, result)
 }
 
@@ -650,9 +716,11 @@ func TestDetectWithRevControl_GitRemoteDetected(t *testing.T) {
 
 	assert.Contains(t, result.Folder, filepath.Join(fp, "hackatime-cli"))
 	assert.Equal(t, project.Result{
-		Project: "hackclub/hackatime-cli",
-		Folder:  result.Folder,
-		Branch:  "master",
+		Project:               "hackclub/hackatime-cli",
+		Folder:                result.Folder,
+		Branch:                "master",
+		Repository:            testProjectGitBasicRepository,
+		RepositoryDescription: testProjectGitBasicRepositoryDescription,
 	}, result)
 }
 
@@ -714,6 +782,10 @@ func TestWithDetection_ProjectPlaceholder_WithGit(t *testing.T) {
 				Project:          heartbeat.PointerTo("my-company/hackatime-cli"),
 				ProjectPath:      projectPath,
 				ProjectRootCount: heartbeat.PointerTo(project.CountSlashesInProjectFolder(projectPath)),
+				Repository:       heartbeat.PointerTo(testProjectGitBasicRepository),
+				RepositoryDescription: heartbeat.PointerTo(
+					testProjectGitBasicRepositoryDescription,
+				),
 			},
 		}, hh)
 
@@ -758,6 +830,10 @@ func TestWithDetection_ProjectPlaceholder_AsPrefix(t *testing.T) {
 				Project:          heartbeat.PointerTo("hackatime-cli-internal"),
 				ProjectPath:      projectPath,
 				ProjectRootCount: heartbeat.PointerTo(project.CountSlashesInProjectFolder(projectPath)),
+				Repository:       heartbeat.PointerTo(testProjectGitBasicRepository),
+				RepositoryDescription: heartbeat.PointerTo(
+					testProjectGitBasicRepositoryDescription,
+				),
 			},
 		}, hh)
 
@@ -802,6 +878,10 @@ func TestWithDetection_ProjectPlaceholder_Alone(t *testing.T) {
 				Project:          heartbeat.PointerTo("hackatime-cli"),
 				ProjectPath:      projectPath,
 				ProjectRootCount: heartbeat.PointerTo(project.CountSlashesInProjectFolder(projectPath)),
+				Repository:       heartbeat.PointerTo(testProjectGitBasicRepository),
+				RepositoryDescription: heartbeat.PointerTo(
+					testProjectGitBasicRepositoryDescription,
+				),
 			},
 		}, hh)
 
@@ -900,6 +980,10 @@ func TestWithDetection_ProjectPlaceholder_MultiplePlaceholders(t *testing.T) {
 				Project:          heartbeat.PointerTo("hackatime-cli/hackatime-cli"),
 				ProjectPath:      projectPath,
 				ProjectRootCount: heartbeat.PointerTo(project.CountSlashesInProjectFolder(projectPath)),
+				Repository:       heartbeat.PointerTo(testProjectGitBasicRepository),
+				RepositoryDescription: heartbeat.PointerTo(
+					testProjectGitBasicRepositoryDescription,
+				),
 			},
 		}, hh)
 
