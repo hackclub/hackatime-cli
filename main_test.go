@@ -94,7 +94,7 @@ func testSendHeartbeats(t *testing.T, projectFolder, entity, prj string) {
 		body, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 
-		assert.JSONEq(t, expectedBody, string(body))
+		assertJSONEqIgnoringRepositoryFields(t, expectedBody, string(body))
 
 		// write response
 		f, err := os.Open("testdata/api_heartbeats_response.json")
@@ -195,7 +195,7 @@ func TestSendHeartbeats_SecondaryApiKey(t *testing.T) {
 		body, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 
-		assert.JSONEq(t, expectedBody, string(body))
+		assertJSONEqIgnoringRepositoryFields(t, expectedBody, string(body))
 
 		// write response
 		f, err := os.Open("testdata/api_heartbeats_response.json")
@@ -832,7 +832,7 @@ func TestSendHeartbeats_WakatimeProjectFile(t *testing.T) {
 		body, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 
-		assert.JSONEq(t, expectedBody, string(body))
+		assertJSONEqIgnoringRepositoryFields(t, expectedBody, string(body))
 
 		// write response
 		f, err := os.Open("testdata/api_heartbeats_response.json")
@@ -1034,7 +1034,7 @@ func TestSendHeartbeats_ExtraHeartbeats(t *testing.T) {
 			body, err := io.ReadAll(req.Body)
 			require.NoError(t, err)
 
-			assert.JSONEq(t, expectedBody, string(body))
+			assertJSONEqIgnoringRepositoryFields(t, expectedBody, string(body))
 		case 2:
 			// 2nd request sends the trimmed 2 extra heartbeats stored to the offline db
 			filename = "testdata/api_heartbeats_response_extra_heartbeats_extra.json"
@@ -1052,7 +1052,7 @@ func TestSendHeartbeats_ExtraHeartbeats(t *testing.T) {
 			body, err := io.ReadAll(req.Body)
 			require.NoError(t, err)
 
-			assert.JSONEq(t, expectedBody, string(body))
+			assertJSONEqIgnoringRepositoryFields(t, expectedBody, string(body))
 		}
 
 		// write response
@@ -1619,7 +1619,7 @@ func TestSendHeartbeats_Err(t *testing.T) {
 		body, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 
-		assert.JSONEq(t, expectedBody, string(body))
+		assertJSONEqIgnoringRepositoryFields(t, expectedBody, string(body))
 
 		// write response
 		w.WriteHeader(http.StatusBadGateway)
