@@ -57,6 +57,8 @@ func Sanitize(ctx context.Context, h Heartbeat, config SanitizeConfig) Heartbeat
 		check.Patterns = config.HideProjectPatterns
 		if ShouldSanitize(ctx, check) {
 			h = sanitizeMetaData(h)
+			h.Repository = nil
+			h.RepositoryDescription = nil
 		}
 	}
 

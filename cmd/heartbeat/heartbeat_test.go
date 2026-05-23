@@ -683,8 +683,12 @@ func TestSendHeartbeats_ExtraHeartbeats_Sanitize(t *testing.T) {
 			Lines:            nil,
 			Project:          heartbeat.PointerTo("hackatime-cli"),
 			ProjectRootCount: nil,
-			Time:             1585598059,
-			UserAgent:        userAgent,
+			Repository:       heartbeat.PointerTo("https://github.com/hackclub/hackatime-cli"),
+			RepositoryDescription: heartbeat.PointerTo(
+				"hackclub/hackatime-cli",
+			),
+			Time:      1585598059,
+			UserAgent: userAgent,
 		}}, hh)
 
 	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)

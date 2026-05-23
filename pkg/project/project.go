@@ -100,9 +100,11 @@ type (
 
 	// Result contains the result of Detect().
 	Result struct {
-		Project string
-		Branch  string
-		Folder  string
+		Project               string
+		Branch                string
+		Folder                string
+		Repository            string
+		RepositoryDescription string
 	}
 
 	// Config contains project detection configurations.
@@ -188,6 +190,11 @@ func WithDetection(config Config) heartbeat.HandleOption {
 
 					result.Branch = firstNonEmptyString(result.Branch, revControlResult.Branch)
 					result.Folder = firstNonEmptyString(result.Folder, revControlResult.Folder)
+					result.Repository = firstNonEmptyString(result.Repository, revControlResult.Repository)
+					result.RepositoryDescription = firstNonEmptyString(
+						result.RepositoryDescription,
+						revControlResult.RepositoryDescription,
+					)
 				}
 
 				folder := h.ProjectPathOverride
@@ -232,6 +239,8 @@ func WithDetection(config Config) heartbeat.HandleOption {
 					ProjectPathOverride: h.ProjectPathOverride,
 				}) && result.Project != "" && detector != FileDetector {
 					result.Project = obfuscateProjectName(ctx, result.Folder)
+					result.Repository = ""
+					result.RepositoryDescription = ""
 				}
 
 				result.Folder = FormatProjectFolder(ctx, result.Folder)
@@ -246,6 +255,12 @@ func WithDetection(config Config) heartbeat.HandleOption {
 
 				hh[n].Project = &result.Project
 				hh[n].Branch = &result.Branch
+				if result.Repository != "" {
+					hh[n].Repository = &result.Repository
+				}
+				if result.RepositoryDescription != "" {
+					hh[n].RepositoryDescription = &result.RepositoryDescription
+				}
 				hh[n].ProjectPath = result.Folder
 			}
 
@@ -332,9 +347,11 @@ func DetectWithRevControl(
 
 			if detected {
 				return Result{
-					Project: result.Project,
-					Branch:  result.Branch,
-					Folder:  result.Folder,
+					Project:               result.Project,
+					Branch:                result.Branch,
+					Folder:                result.Folder,
+					Repository:            result.Repository,
+					RepositoryDescription: result.RepositoryDescription,
 				}
 			}
 		}
