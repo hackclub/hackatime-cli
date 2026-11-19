@@ -15,7 +15,7 @@ env:
 jobs:
   test:
     name: Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     steps:
       -
         name: Checkout
@@ -55,7 +55,7 @@ jobs:
 
   test-integration:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     steps:
       -
         name: Checkout
@@ -80,7 +80,7 @@ jobs:
 
   test-windows:
     name: Unit Tests Windows
-    runs-on: windows-latest
+    runs-on: depot-windows-latest
     steps:
       -
         name: Checkout
@@ -106,7 +106,7 @@ jobs:
 
   test-integration-windows:
     name: Integration Tests Windows
-    runs-on: windows-latest
+    runs-on: depot-windows-latest
     steps:
       -
         name: Checkout
@@ -131,7 +131,7 @@ jobs:
 
   test-macos:
     name: Unit Tests macOS
-    runs-on: macos-latest
+    runs-on: depot-macos-latest
     steps:
       -
         name: Checkout
@@ -157,7 +157,7 @@ jobs:
 
   test-integration-macos:
     name: Integration Tests macOS
-    runs-on: macos-latest
+    runs-on: depot-macos-latest
     steps:
       -
         name: Checkout
@@ -182,7 +182,7 @@ jobs:
 
   test-shell-script:
     name: Unit Tests Shell Script
-    runs-on: macos-latest
+    runs-on: depot-macos-latest
     steps:
       -
         name: Checkout
@@ -208,7 +208,7 @@ jobs:
     name: Version
     concurrency: tagging
     if: ${{ github.ref == 'refs/heads/release' || github.ref == 'refs/heads/develop' }}
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     needs: [
       test,
       test-integration,
@@ -253,7 +253,7 @@ jobs:
 
   build-android:
     name: Build Android
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     needs: [version]
     steps:
       -
@@ -301,7 +301,7 @@ jobs:
 
   build-linux:
     name: Build Linux
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     needs: [version]
     steps:
       -
@@ -342,7 +342,7 @@ jobs:
 
   build-freebsd:
     name: Build FreeBSD
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     needs: [version]
     steps:
       -
@@ -383,7 +383,7 @@ jobs:
 
   build-netbsd:
     name: Build NetBSD
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     needs: [version]
     steps:
       -
@@ -424,7 +424,7 @@ jobs:
 
   build-openbsd:
     name: Build OpenBSD
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     needs: [version]
     steps:
       -
@@ -465,7 +465,7 @@ jobs:
 
   build-darwin:
     name: Build Darwin
-    runs-on: macos-latest
+    runs-on: depot-macos-latest
     needs: [version]
     steps:
       -
@@ -506,7 +506,7 @@ jobs:
 
   build-windows:
     name: Build Windows
-    runs-on: windows-latest
+    runs-on: depot-windows-latest
     needs: [version]
     steps:
       -
@@ -548,7 +548,7 @@ jobs:
   sign:
     name: Sign Apple binaries
     needs: [version, build-darwin]
-    runs-on: macos-latest
+    runs-on: depot-macos-latest
     env:
       # Signing and notarization only run when the repository has Apple credentials.
       # Without them the darwin binaries are released unsigned.
@@ -622,7 +622,7 @@ jobs:
 
   release:
     name: Release
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     env:
       HAS_SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK != '' }}
     needs: [
