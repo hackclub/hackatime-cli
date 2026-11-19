@@ -33,6 +33,8 @@ We use two branches:
 - `develop` - Default branch. PRs are merged to this branch.
 - `release` - Branch for production releases and hotfixes. GitHub Actions automatically builds releases from this branch.
 
+Merge pull requests with a merge commit, not a squash or rebase. The release workflow reads the source branch name from the merge commit message to work out the next version, and fails without it.
+
 ## Testing and Linting
 
 Run `make test-all` before creating any pull requests, or your PR won’t pass the automated checks.
@@ -57,7 +59,7 @@ Run `make test-all` before creating any pull requests, or your PR won’t pass t
   - If your pull request fixes an issue in the issue tracker, use the [closes/fixes/resolves syntax](https://help.github.com/articles/closing-issues-via-commit-messages) in the body to indicate this.
   - See <http://chris.beams.io/posts/git-commit> for more tips on writing good commit messages.
 - Pull request title and description should follow the same guidelines as commit messages.
-- Rebasing pull requests is OK and encouraged. After submitting your pull request some changes may be requested. Prefer using [git fixup](https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---fixupltcommitgt) rather than adding orphan extra commits to the pull request, then do a push to your fork. As soon as your PR gets approved one of us will merge it by rebasing and squashing any residuary commits that were pushed while reviewing. This will help to keep the commit history of the repository clean.
+- Rebasing pull requests is OK and encouraged. After submitting your pull request some changes may be requested. Prefer using [git fixup](https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---fixupltcommitgt) rather than adding orphan extra commits to the pull request, then do a push to your fork. Once your PR is approved one of us will merge it with a merge commit.
 
 ## Troubleshooting
 
