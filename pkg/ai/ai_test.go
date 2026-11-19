@@ -761,12 +761,15 @@ func TestWithAISyncMarksHumanHeartbeatsAsAICoding(t *testing.T) {
 		return results, nil
 	})
 
-	humanWithinTwoMinutes := "/tmp/human-within-two-minutes.go"
-	humanWithinThirtyMinutesNoChangesBeforeEdit := "/tmp/human-within-thirty-minutes-no-changes-before-edit.go"
-	humanWithinThirtyMinutesWithChanges := "/tmp/human-within-thirty-minutes-with-changes.go"
-	humanWithinThirtyMinutesNoChangesAfterEdit := "/tmp/human-within-thirty-minutes-no-changes-after-edit.go"
-	humanOutsideThirtyMinutes := "/tmp/human-outside-thirty-minutes.go"
-	humanNearbyDebugging := "/tmp/human-nearby-debugging.go"
+	humanWithinTwoMinutes := humanEntity(entity, "human-within-two-minutes.go")
+	humanWithinThirtyMinutesNoChangesBeforeEdit := humanEntity(
+		entity,
+		"human-within-thirty-minutes-no-changes-before-edit.go",
+	)
+	humanWithinThirtyMinutesWithChanges := humanEntity(entity, "human-within-thirty-minutes-with-changes.go")
+	humanWithinThirtyMinutesNoChangesAfterEdit := humanEntity(entity, "human-within-thirty-minutes-no-changes-after-edit.go")
+	humanOutsideThirtyMinutes := humanEntity(entity, "human-outside-thirty-minutes.go")
+	humanNearbyDebugging := humanEntity(entity, "human-nearby-debugging.go")
 	humanAIDuplicate := entity
 	humanAfterAIDifferentWrite := entity
 
@@ -896,8 +899,8 @@ func TestWithAISyncSkipsTwoMinuteAICodingForHumanEditsWithChanges(t *testing.T) 
 		return results, nil
 	})
 
-	humanWithinTwoMinutesWithChanges := "/tmp/human-within-two-minutes-with-changes.go"
-	humanWithinTwoMinutesNoChanges := "/tmp/human-within-two-minutes-no-changes.go"
+	humanWithinTwoMinutesWithChanges := humanEntity(entity, "human-within-two-minutes-with-changes.go")
+	humanWithinTwoMinutesNoChanges := humanEntity(entity, "human-within-two-minutes-no-changes.go")
 
 	got, err := handle(t.Context(), []heartbeat.Heartbeat{
 		{
