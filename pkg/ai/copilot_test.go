@@ -190,8 +190,10 @@ func TestCopilotParse_UsesWorkspaceFolder(t *testing.T) {
 	// not decide the project of the session.
 	outsideFile := filepath.Join(home, "AppData", "chat-session-resources", "content.txt")
 
+	// VS Code writes file URIs with an empty host, so Windows paths keep a
+	// leading slash before the drive letter: file:///c%3A/Users/...
 	workspace, err := json.Marshal(map[string]any{
-		"folder": (&url.URL{Scheme: "file", Path: filepath.ToSlash(projectDir)}).String(),
+		"folder": (&url.URL{Scheme: "file", Path: "/" + strings.TrimPrefix(filepath.ToSlash(projectDir), "/")}).String(),
 	})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, "workspace.json"), workspace, 0o644))
