@@ -8,9 +8,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/project"
-	"github.com/wakatime/wakatime-cli/pkg/regex"
-	"github.com/wakatime/wakatime-cli/pkg/windows"
+	"github.com/hackclub/hackatime-cli/pkg/project"
+	"github.com/hackclub/hackatime-cli/pkg/regex"
+	"github.com/hackclub/hackatime-cli/pkg/windows"
 
 	"github.com/gandarez/go-realpath"
 	"github.com/stretchr/testify/assert"
@@ -34,6 +34,25 @@ func TestGit_Detect(t *testing.T) {
 		Branch:  "master",
 		Folder:  result.Folder,
 	}, result)
+}
+
+func TestGit_Detect_GitRemoteTrailingSpaces(t *testing.T) {
+	fp := setupTestGitBasic(t)
+	configPath := filepath.Join(fp, "wakatime-cli/.git/config")
+	config := []byte("[remote \"origin\"]\n\turl = git@github.com:wakatime/wakatime-cli.git  \n")
+	err := os.WriteFile(configPath, config, 0600)
+	require.NoError(t, err)
+
+	g := project.Git{
+		Filepath:             filepath.Join(fp, "wakatime-cli/src/pkg/file.go"),
+		ProjectFromGitRemote: true,
+	}
+
+	result, detected, err := g.Detect(t.Context())
+	require.NoError(t, err)
+
+	assert.True(t, detected)
+	assert.Equal(t, "wakatime/wakatime-cli", result.Project)
 }
 
 func TestGit_Detect_BranchWithSlash(t *testing.T) {
@@ -154,6 +173,30 @@ func TestGit_Detect_Worktree(t *testing.T) {
 		Project: "wakatime-cli",
 		Branch:  "feature/api",
 		Folder:  result.Folder,
+	}, result)
+}
+
+func TestGit_Detect_Worktree_ModulesPath(t *testing.T) {
+	fp := setupTestGitWorktree(t)
+	projectDir := filepath.Join(fp, "node_modules", "wakatime-cli")
+	require.NoError(t, os.MkdirAll(filepath.Dir(projectDir), 0700))
+	require.NoError(t, os.Rename(filepath.Join(fp, "wakatime-cli"), projectDir))
+
+	gitdir := filepath.Join(projectDir, ".git", "worktrees", "api")
+	require.NoError(t, os.WriteFile(filepath.Join(fp, "api", ".git"), []byte("gitdir: "+gitdir), 0600))
+
+	g := project.Git{
+		Filepath: filepath.Join(fp, "api", "src", "pkg", "file.go"),
+	}
+
+	result, detected, err := g.Detect(t.Context())
+	require.NoError(t, err)
+
+	assert.True(t, detected)
+	assert.Equal(t, project.Result{
+		Project: "wakatime-cli",
+		Branch:  "feature/api",
+		Folder:  projectDir,
 	}, result)
 }
 

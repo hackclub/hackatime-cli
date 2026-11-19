@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	cmdheartbeat "github.com/wakatime/wakatime-cli/cmd/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/log/setup"
-	"github.com/wakatime/wakatime-cli/pkg/version"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
+	cmdheartbeat "github.com/hackclub/hackatime-cli/cmd/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/log/setup"
+	"github.com/hackclub/hackatime-cli/pkg/version"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -313,6 +313,7 @@ func TestRunCmd_BackoffLoggedWithVerbose(t *testing.T) {
 	v.Set("offline-queue-file", offlineQueueFile.Name())
 	v.Set("internal.backoff_at", time.Now().Add(10*time.Minute).Format(ini.DateFormat))
 	v.Set("internal.backoff_retries", "1")
+	v.Set("sync-ai-disabled", true)
 	v.Set("verbose", verbose)
 
 	logger, err := setup.Logging(ctx, v)
@@ -377,6 +378,7 @@ func TestRunCmd_BackoffNotLogged(t *testing.T) {
 	v.Set("offline-queue-file", offlineQueueFile.Name())
 	v.Set("internal.backoff_at", time.Now().Add(10*time.Minute).Format(ini.DateFormat))
 	v.Set("internal.backoff_retries", "1")
+	v.Set("sync-ai-disabled", true)
 	v.Set("verbose", verbose)
 
 	logger, err := setup.Logging(ctx, v)

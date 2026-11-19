@@ -6,14 +6,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gandarez/go-realpath"
-	cmdheartbeat "github.com/wakatime/wakatime-cli/cmd/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
+	cmdheartbeat "github.com/hackclub/hackatime-cli/cmd/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +28,121 @@ func TestRunAISyncActivity_SendsAIHeartbeatsWithoutEntity(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+
+	transcriptModifiedAt := time.Date(2026, 3, 18, 12, 0, 0, 0, time.UTC)
+
+	tmpDir := t.TempDir()
+
+	tmpDir, err := realpath.Realpath(tmpDir)
+	require.NoError(t, err)
+
+	copyFile(t, "testdata/main.go", filepath.Join(tmpDir, "main.go"))
+
+	entity, err := filepath.Abs(filepath.Join(tmpDir, "main.go"))
+	require.NoError(t, err)
+
+	entity = strings.ReplaceAll(entity, "\\", "/")
+
+	transcriptDir := filepath.Join(home, ".claude", "projects", "sample-project")
+	require.NoError(t, os.MkdirAll(transcriptDir, 0o755))
+
+	transcriptPath := filepath.Join(transcriptDir, "session.jsonl")
+	transcript := strings.Join([]string{
+		"{\"timestamp\":\"2026-03-18T12:00:00Z\",\"version\":\"2.1.45\"," +
+			"\"toolUseResult\":{\"filePath\":\"" + entity + "\"," +
+			"\"structuredPatch\":[{\"oldLines\":3,\"newLines\":5}," +
+			"{\"oldLines\":4,\"newLines\":1}]},\"usage\":{\"input_tokens\":1," +
+			"\"cache_creation_input_tokens\":2,\"cache_read_input_tokens\":3,\"total_tokens\":7}}",
+	}, "\n") + "\n"
+	require.NoError(t, os.WriteFile(transcriptPath, []byte(transcript), 0o644))
+	require.NoError(t, os.Chtimes(transcriptPath, transcriptModifiedAt, transcriptModifiedAt))
+
+	testServerURL, router, tearDown := setupTestServer()
+	defer tearDown()
+
+	var numCalls int
+
+	router.HandleFunc("/users/current/heartbeats.bulk", func(w http.ResponseWriter, req *http.Request) {
+		numCalls++
+
+		assert.Equal(t, http.MethodPost, req.Method)
+		assert.Equal(t, []string{"application/json"}, req.Header["Accept"])
+		assert.Equal(t, []string{"application/json"}, req.Header["Content-Type"])
+		assert.Contains(t, req.Header.Get("User-Agent"), "plugin/0.0.1")
+
+		body, err := io.ReadAll(req.Body)
+		require.NoError(t, err)
+
+		var entities []struct {
+			Entity              string  `json:"entity"`
+			AISession           string  `json:"ai_session"`
+			AIInputTokens       int64   `json:"ai_input_tokens"`
+			AICachedInputTokens int64   `json:"ai_cached_input_tokens"`
+			AIOutputTokens      int64   `json:"ai_output_tokens"`
+			Category            string  `json:"category"`
+			Language            *string `json:"language"`
+			Project             *string `json:"project"`
+			UserAgent           string  `json:"user_agent"`
+			AILineChange        *int    `json:"ai_line_changes"`
+		}
+
+		require.NoError(t, json.Unmarshal(body, &entities))
+		require.Len(t, entities, 1)
+		assert.Equal(t, entity, entities[0].Entity)
+		assert.Equal(t, "session", entities[0].AISession)
+		assert.Equal(t, "ai coding", entities[0].Category)
+		require.NotNil(t, entities[0].Language)
+		assert.Equal(t, "Go", *entities[0].Language)
+		require.NotNil(t, entities[0].Project)
+		assert.Equal(t, "myproject", *entities[0].Project)
+		require.NotNil(t, entities[0].AILineChange)
+		assert.Equal(t, -1, *entities[0].AILineChange)
+		assert.Equal(t, int64(3), entities[0].AIInputTokens)
+		assert.Equal(t, int64(3), entities[0].AICachedInputTokens)
+		assert.Equal(t, int64(7), entities[0].AIOutputTokens)
+		assert.Equal(t, heartbeat.UserAgent(t.Context(), "claude-code/2.1.45"), entities[0].UserAgent)
+
+		w.WriteHeader(http.StatusCreated)
+
+		f, err := os.Open("testdata/api_heartbeats_response.json")
+		require.NoError(t, err)
+
+		defer f.Close()
+
+		_, err = io.Copy(w, f)
+		require.NoError(t, err)
+	})
+
+	tmpInternalFile, err := os.CreateTemp(t.TempDir(), "wakatime-internal-config")
+	require.NoError(t, err)
+	require.NoError(t, tmpInternalFile.Close())
+
+	v := viper.New()
+	v.Set("api-url", testServerURL)
+	v.Set("alternate-project", "fallback-project")
+	v.Set("heartbeat-rate-limit-seconds", 0)
+	v.Set("internal-config", tmpInternalFile.Name())
+	v.Set("key", "00000000-0000-4000-8000-000000000000")
+	v.Set("plugin", "plugin/0.0.1")
+	v.Set("project", "myproject")
+	v.Set("project-folder", "/path/to/project")
+	v.Set("timeout", 5)
+	v.Set("internal.ai_logs_last_parsed_at", time.Date(2026, 3, 18, 11, 0, 0, 0, time.UTC).Format(ini.DateFormat))
+
+	code, err := cmdheartbeat.RunAISyncActivity(t.Context(), v)
+	require.NoError(t, err)
+	assert.Equal(t, 0, code)
+	assert.Equal(t, 1, numCalls)
+}
+
+func TestRunAISyncActivity_FiltersExcludedAIHeartbeats(t *testing.T) {
+	resetSingleton(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	transcriptModifiedAt := time.Date(2026, 3, 18, 12, 0, 0, 0, time.UTC)
 
 	tmpDir := t.TempDir()
 
@@ -50,6 +167,80 @@ func TestRunAISyncActivity_SendsAIHeartbeatsWithoutEntity(t *testing.T) {
 			"{\"oldLines\":4,\"newLines\":1}]},\"usage\":{\"total_tokens\":7}}",
 	}, "\n") + "\n"
 	require.NoError(t, os.WriteFile(transcriptPath, []byte(transcript), 0o644))
+	require.NoError(t, os.Chtimes(transcriptPath, transcriptModifiedAt, transcriptModifiedAt))
+
+	testServerURL, router, tearDown := setupTestServer()
+	defer tearDown()
+
+	var numCalls int
+
+	router.HandleFunc("/users/current/heartbeats.bulk", func(w http.ResponseWriter, _ *http.Request) {
+		numCalls++
+
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	tmpInternalFile, err := os.CreateTemp(t.TempDir(), "wakatime-internal-config")
+	require.NoError(t, err)
+	require.NoError(t, tmpInternalFile.Close())
+
+	v := viper.New()
+	v.Set("api-url", testServerURL)
+	v.Set("exclude", regexp.QuoteMeta(entity))
+	v.Set("internal-config", tmpInternalFile.Name())
+	v.Set("key", "00000000-0000-4000-8000-000000000000")
+	v.Set("plugin", "plugin/0.0.1")
+	v.Set("timeout", 5)
+	v.Set("internal.ai_logs_last_parsed_at", time.Date(2026, 3, 18, 11, 0, 0, 0, time.UTC).Format(ini.DateFormat))
+
+	code, err := cmdheartbeat.RunAISyncActivity(t.Context(), v)
+	require.NoError(t, err)
+	assert.Equal(t, 0, code)
+	assert.Equal(t, 0, numCalls)
+}
+
+func TestRunAISyncActivity_IncludeOverridesExcludeForAIHeartbeats(t *testing.T) {
+	resetSingleton(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	transcriptModifiedAt := time.Date(2026, 3, 18, 12, 1, 0, 0, time.UTC)
+
+	includedDir, err := realpath.Realpath(t.TempDir())
+	require.NoError(t, err)
+
+	excludedDir, err := realpath.Realpath(t.TempDir())
+	require.NoError(t, err)
+
+	copyFile(t, "testdata/main.go", filepath.Join(includedDir, "included.go"))
+	copyFile(t, "testdata/main.go", filepath.Join(excludedDir, "excluded.go"))
+
+	includedEntity, err := filepath.Abs(filepath.Join(includedDir, "included.go"))
+	require.NoError(t, err)
+
+	excludedEntity, err := filepath.Abs(filepath.Join(excludedDir, "excluded.go"))
+	require.NoError(t, err)
+
+	includedEntity = strings.ReplaceAll(includedEntity, "\\", "/")
+	excludedEntity = strings.ReplaceAll(excludedEntity, "\\", "/")
+	includedDir = strings.ReplaceAll(includedDir, "\\", "/")
+
+	transcriptDir := filepath.Join(home, ".claude", "projects", "sample-project")
+	require.NoError(t, os.MkdirAll(transcriptDir, 0o755))
+
+	transcriptPath := filepath.Join(transcriptDir, "session.jsonl")
+	transcript := strings.Join([]string{
+		"{\"timestamp\":\"2026-03-18T12:00:00Z\",\"version\":\"2.1.45\"," +
+			"\"toolUseResult\":{\"filePath\":\"" + includedEntity + "\"," +
+			"\"structuredPatch\":[{\"oldLines\":3,\"newLines\":5}]}}",
+		"{\"timestamp\":\"2026-03-18T12:01:00Z\",\"version\":\"2.1.45\"," +
+			"\"toolUseResult\":{\"filePath\":\"" + excludedEntity + "\"," +
+			"\"structuredPatch\":[{\"oldLines\":3,\"newLines\":5}]}}",
+	}, "\n") + "\n"
+	require.NoError(t, os.WriteFile(transcriptPath, []byte(transcript), 0o644))
+	require.NoError(t, os.Chtimes(transcriptPath, transcriptModifiedAt, transcriptModifiedAt))
 
 	testServerURL, router, tearDown := setupTestServer()
 	defer tearDown()
@@ -59,40 +250,16 @@ func TestRunAISyncActivity_SendsAIHeartbeatsWithoutEntity(t *testing.T) {
 	router.HandleFunc("/users/current/heartbeats.bulk", func(w http.ResponseWriter, req *http.Request) {
 		numCalls++
 
-		assert.Equal(t, http.MethodPost, req.Method)
-		assert.Equal(t, []string{"application/json"}, req.Header["Accept"])
-		assert.Equal(t, []string{"application/json"}, req.Header["Content-Type"])
-
 		body, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 
 		var entities []struct {
-			Entity         string  `json:"entity"`
-			AISession      string  `json:"ai_session"`
-			AIInputTokens  int64   `json:"ai_input_tokens"`
-			AIOutputTokens int64   `json:"ai_output_tokens"`
-			Category       string  `json:"category"`
-			Language       *string `json:"language"`
-			Project        *string `json:"project"`
-			UserAgent      string  `json:"user_agent"`
-			AILineChange   *int    `json:"ai_line_changes"`
+			Entity string `json:"entity"`
 		}
 
 		require.NoError(t, json.Unmarshal(body, &entities))
 		require.Len(t, entities, 1)
-		assert.Equal(t, entity, entities[0].Entity)
-		assert.Equal(t, "session", entities[0].AISession)
-		assert.Equal(t, "ai coding", entities[0].Category)
-		require.NotNil(t, entities[0].Language)
-		assert.Equal(t, "Go", *entities[0].Language)
-		require.NotNil(t, entities[0].Project)
-		assert.Equal(t, "myproject", *entities[0].Project)
-		require.NotNil(t, entities[0].AILineChange)
-		assert.Equal(t, -1, *entities[0].AILineChange)
-		assert.Zero(t, entities[0].AIInputTokens)
-		assert.Equal(t, int64(7), entities[0].AIOutputTokens)
-		assert.Contains(t, entities[0].UserAgent, "ClaudeCode/2.1.45")
-		assert.Contains(t, entities[0].UserAgent, "plugin/0.0.1")
+		assert.Equal(t, includedEntity, entities[0].Entity)
 
 		w.WriteHeader(http.StatusCreated)
 
@@ -107,17 +274,15 @@ func TestRunAISyncActivity_SendsAIHeartbeatsWithoutEntity(t *testing.T) {
 
 	tmpInternalFile, err := os.CreateTemp(t.TempDir(), "wakatime-internal-config")
 	require.NoError(t, err)
-
-	defer tmpInternalFile.Close()
+	require.NoError(t, tmpInternalFile.Close())
 
 	v := viper.New()
 	v.Set("api-url", testServerURL)
-	v.Set("alternate-project", "fallback-project")
+	v.Set("exclude", `.*`)
+	v.Set("include", "^"+regexp.QuoteMeta(includedDir)+"/.*")
 	v.Set("internal-config", tmpInternalFile.Name())
 	v.Set("key", "00000000-0000-4000-8000-000000000000")
 	v.Set("plugin", "plugin/0.0.1")
-	v.Set("project", "myproject")
-	v.Set("project-folder", "/path/to/project")
 	v.Set("timeout", 5)
 	v.Set("internal.ai_logs_last_parsed_at", time.Date(2026, 3, 18, 11, 0, 0, 0, time.UTC).Format(ini.DateFormat))
 
@@ -133,6 +298,9 @@ func TestRunAISyncActivity_SendsAIPromptLengthToAPI(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("CODEX_HOME", "")
+
+	transcriptModifiedAt := time.Date(2026, 3, 28, 11, 33, 14, 0, time.UTC)
 
 	now := time.Now()
 	transcriptDir := filepath.Join(home, ".codex", "sessions", now.Format("2006"), now.Format("01"), now.Format("02"))
@@ -153,6 +321,7 @@ func TestRunAISyncActivity_SendsAIPromptLengthToAPI(t *testing.T) {
 		}, ""),
 	}, "\n") + "\n"
 	require.NoError(t, os.WriteFile(transcriptPath, []byte(transcript), 0o644))
+	require.NoError(t, os.Chtimes(transcriptPath, transcriptModifiedAt, transcriptModifiedAt))
 
 	testServerURL, router, tearDown := setupTestServer()
 	defer tearDown()
@@ -176,7 +345,7 @@ func TestRunAISyncActivity_SendsAIPromptLengthToAPI(t *testing.T) {
 		require.Len(t, entities, 1)
 		assert.Equal(t, "019d3438-39ae-7fb2-8526-d6c02ba3577c", entities[0].AISession)
 		assert.Equal(t, len([]rune("Please implement the code as described by the comment.")), entities[0].AIPromptLength)
-		assert.Contains(t, entities[0].UserAgent, "Codex/0.116.0-alpha.10")
+		assert.NotContains(t, entities[0].UserAgent, "Codex/")
 
 		w.WriteHeader(http.StatusCreated)
 
@@ -191,8 +360,7 @@ func TestRunAISyncActivity_SendsAIPromptLengthToAPI(t *testing.T) {
 
 	tmpInternalFile, err := os.CreateTemp(t.TempDir(), "wakatime-internal-config")
 	require.NoError(t, err)
-
-	defer tmpInternalFile.Close()
+	require.NoError(t, tmpInternalFile.Close())
 
 	v := viper.New()
 	v.Set("api-url", testServerURL)
@@ -208,12 +376,58 @@ func TestRunAISyncActivity_SendsAIPromptLengthToAPI(t *testing.T) {
 	assert.Equal(t, 1, numCalls)
 }
 
+func TestRunAISyncActivity_SendError(t *testing.T) {
+	resetSingleton(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CODEX_HOME", "")
+
+	transcriptModifiedAt := time.Date(2026, 3, 28, 11, 33, 14, 0, time.UTC)
+	transcriptDir := filepath.Join(home, ".codex", "sessions", "2026", "03", "28")
+	require.NoError(t, os.MkdirAll(transcriptDir, 0o755))
+
+	transcriptPath := filepath.Join(transcriptDir, "rollout-2026-03-28T07-33-13-019d3438-39ae-7fb2-8526-d6c02ba3577c.jsonl")
+	transcript := strings.Join([]string{
+		`{"timestamp":"2026-03-28T11:33:14.288Z","type":"session_meta","payload":` +
+			`{"id":"019d3438-39ae-7fb2-8526-d6c02ba3577c","cwd":"/root/wakatime-cli",` +
+			`"cli_version":"0.116.0-alpha.10"}}`,
+		`{"timestamp":"2026-03-28T11:33:14.289Z","type":"response_item","payload":` +
+			`{"type":"message","role":"user","content":` +
+			`[{"type":"input_text","text":"Please implement the code."}]}}`,
+	}, "\n") + "\n"
+	require.NoError(t, os.WriteFile(transcriptPath, []byte(transcript), 0o644))
+	require.NoError(t, os.Chtimes(transcriptPath, transcriptModifiedAt, transcriptModifiedAt))
+
+	tmpInternalFile, err := os.CreateTemp(t.TempDir(), "wakatime-internal-config")
+	require.NoError(t, err)
+	require.NoError(t, tmpInternalFile.Close())
+
+	v := viper.New()
+	v.Set("api-url", "https://example.com")
+	v.Set("internal-config", tmpInternalFile.Name())
+	v.Set("key", "00000000-0000-4000-8000-000000000000")
+	v.Set("plugin", "plugin/0.0.1")
+	v.Set("ssl-certs-file", filepath.Join(t.TempDir(), "missing.pem"))
+	v.Set("timeout", 5)
+	v.Set("internal.ai_logs_last_parsed_at", time.Date(2026, 3, 28, 11, 0, 0, 0, time.UTC).Format(ini.DateFormat))
+
+	code, err := cmdheartbeat.RunAISyncActivity(t.Context(), v)
+
+	require.Error(t, err)
+	assert.Equal(t, 1, code)
+	assert.Contains(t, err.Error(), "sending ai activity failed")
+}
+
 func TestRunAISyncActivity_UsesAlternateProject(t *testing.T) {
 	resetSingleton(t)
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+
+	transcriptModifiedAt := time.Date(2026, 3, 18, 12, 0, 0, 0, time.UTC)
 
 	tmpDir := t.TempDir()
 
@@ -238,6 +452,7 @@ func TestRunAISyncActivity_UsesAlternateProject(t *testing.T) {
 			"{\"oldLines\":4,\"newLines\":1}]},\"usage\":{\"total_tokens\":7}}",
 	}, "\n") + "\n"
 	require.NoError(t, os.WriteFile(transcriptPath, []byte(transcript), 0o644))
+	require.NoError(t, os.Chtimes(transcriptPath, transcriptModifiedAt, transcriptModifiedAt))
 
 	testServerURL, router, tearDown := setupTestServer()
 	defer tearDown()
@@ -283,12 +498,12 @@ func TestRunAISyncActivity_UsesAlternateProject(t *testing.T) {
 
 	tmpInternalFile, err := os.CreateTemp(t.TempDir(), "wakatime-internal-config")
 	require.NoError(t, err)
-
-	defer tmpInternalFile.Close()
+	require.NoError(t, tmpInternalFile.Close())
 
 	v := viper.New()
 	v.Set("api-url", testServerURL)
 	v.Set("alternate-project", "fallback-project")
+	v.Set("heartbeat-rate-limit-seconds", 0)
 	v.Set("internal-config", tmpInternalFile.Name())
 	v.Set("key", "00000000-0000-4000-8000-000000000000")
 	v.Set("plugin", "plugin/0.0.1")
@@ -307,6 +522,8 @@ func TestRunAISyncActivity_RateLimitedWithoutEntity_SavesOffline(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+
+	transcriptModifiedAt := time.Date(2026, 3, 18, 12, 0, 0, 0, time.UTC)
 
 	tmpDir := t.TempDir()
 
@@ -330,11 +547,11 @@ func TestRunAISyncActivity_RateLimitedWithoutEntity_SavesOffline(t *testing.T) {
 			"\"structuredPatch\":[{\"oldLines\":3,\"newLines\":5},{\"oldLines\":4,\"newLines\":1}]}}",
 	}, "\n") + "\n"
 	require.NoError(t, os.WriteFile(transcriptPath, []byte(transcript), 0o644))
+	require.NoError(t, os.Chtimes(transcriptPath, transcriptModifiedAt, transcriptModifiedAt))
 
 	tmpInternalFile, err := os.CreateTemp(t.TempDir(), "wakatime-internal-config")
 	require.NoError(t, err)
-
-	defer tmpInternalFile.Close()
+	require.NoError(t, tmpInternalFile.Close())
 
 	offlineQueueFile, err := os.CreateTemp(t.TempDir(), "offline-queue-file")
 	require.NoError(t, err)

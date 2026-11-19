@@ -1,4 +1,4 @@
-//go:build !freebsd && !openbsd && !netbsd && !dragonfly
+//go:build (!freebsd && !openbsd && !netbsd && !dragonfly) || (freebsd && (amd64 || arm64)) || (openbsd && (amd64 || arm64))
 
 package ai_test
 
@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hackclub/hackatime-cli/pkg/ai"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wakatime/wakatime-cli/pkg/ai"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
 
 	_ "modernc.org/sqlite"
 )
@@ -47,21 +47,24 @@ func TestQoderParse(t *testing.T) {
 		FallbackUserAgent: "plugin/0.0.1",
 	}.Parse(ctx)
 	require.NoError(t, err)
-	require.Len(t, got, 5)
+	require.Len(t, got, 6)
 
 	authorsPath := "/Users/user/git/wakatime-cli/AUTHORS"
+	contributorsPath := "/Users/user/git/wakatime-cli/CONTRIBUTORS"
 
 	assert.Equal(t, "Qoder 99947f30-f6f8-4323-a2c1-4970f5329d9c", got[0].Entity)
 	assert.Equal(t, heartbeat.AppType, got[0].EntityType)
 	assert.Equal(t, "99947f30-f6f8-4323-a2c1-4970f5329d9c", got[0].AISession)
-	assert.EqualValues(t, 20159, got[0].AIInputTokens)
+	assert.EqualValues(t, 3029, got[0].AIInputTokens)
+	assert.EqualValues(t, 17130, got[0].AICachedInputTokens)
 	assert.EqualValues(t, 129, got[0].AIOutputTokens)
 	assert.Equal(t, 45, got[0].AIPromptLength)
 	assert.Equal(t, "/Users/user/git/wakatime-cli", got[0].ProjectPathOverride)
-	assert.Contains(t, got[0].UserAgent, "Qoder")
+	assert.Equal(t, "plugin/0.0.1", got[0].UserAgent)
 
 	assert.Equal(t, "Qoder 99947f30-f6f8-4323-a2c1-4970f5329d9c", got[1].Entity)
-	assert.EqualValues(t, 19812, got[1].AIInputTokens)
+	assert.EqualValues(t, 3321, got[1].AIInputTokens)
+	assert.EqualValues(t, 16491, got[1].AICachedInputTokens)
 	assert.EqualValues(t, 80, got[1].AIOutputTokens)
 	assert.Equal(t, 52, got[1].AIPromptLength)
 
@@ -71,15 +74,22 @@ func TestQoderParse(t *testing.T) {
 	assert.Nil(t, got[2].AILineChanges)
 	assert.Zero(t, got[2].AIPromptLength)
 
-	assert.EqualValues(t, 20088, got[3].AIInputTokens)
+	assert.EqualValues(t, 282, got[3].AIInputTokens)
+	assert.EqualValues(t, 19806, got[3].AICachedInputTokens)
 	assert.EqualValues(t, 125, got[3].AIOutputTokens)
 	assert.Zero(t, got[3].AIPromptLength)
 
 	assert.Equal(t, authorsPath, got[4].Entity)
 	assert.Equal(t, heartbeat.PointerTo(true), got[4].IsWrite)
 	require.NotNil(t, got[4].AILineChanges)
-	assert.Equal(t, -1, *got[4].AILineChanges)
+	assert.Zero(t, *got[4].AILineChanges)
 	assert.Zero(t, got[4].AIPromptLength)
+
+	assert.Equal(t, contributorsPath, got[5].Entity)
+	assert.Equal(t, heartbeat.PointerTo(true), got[5].IsWrite)
+	require.NotNil(t, got[5].AILineChanges)
+	assert.Equal(t, 3, *got[5].AILineChanges)
+	assert.Zero(t, got[5].AIPromptLength)
 }
 
 func TestQoderParse_NoDB(t *testing.T) {
@@ -223,10 +233,24 @@ CREATE TABLE chat_message (
 		sessionID,
 		secondRequestID,
 		"tool",
-		qoderToolResultJSON(t, sessionID, secondRequestID, projectPath, "search_replace", authorsPath, map[string]int{
-			"add":    1,
-			"delete": 2,
-		}),
+		qoderMultiToolResultJSON(
+			t,
+			sessionID,
+			secondRequestID,
+			projectPath,
+			"search_replace",
+			authorsPath,
+			[]map[string]any{
+				{
+					"path":     authorsPath,
+					"diffInfo": map[string]int{"add": 0, "delete": 0},
+				},
+				{
+					"path":     projectPath + "/CONTRIBUTORS",
+					"diffInfo": map[string]int{"add": 4, "delete": 1},
+				},
+			},
+		),
 		"",
 		1777301184268,
 	)
@@ -333,6 +357,32 @@ func qoderToolResultJSON(
 	}
 
 	raw, err := json.Marshal(result)
+	require.NoError(t, err)
+
+	return string(raw)
+}
+
+func qoderMultiToolResultJSON(
+	t *testing.T,
+	sessionID string,
+	requestID string,
+	projectPath string,
+	toolCallName string,
+	filePath string,
+	results []map[string]any,
+) string {
+	t.Helper()
+
+	raw, err := json.Marshal(map[string]any{
+		"sessionId":    sessionID,
+		"requestId":    requestID,
+		"projectPath":  projectPath,
+		"toolCallName": toolCallName,
+		"parameters": map[string]any{
+			"file_path": filePath,
+		},
+		"results": results,
+	})
 	require.NoError(t, err)
 
 	return string(raw)

@@ -1,6 +1,6 @@
 package main
 
-import "github.com/wakatime/wakatime-cli/cmd"
+import "github.com/hackclub/hackatime-cli/cmd"
 
 func main() {
 	cmd.Execute()

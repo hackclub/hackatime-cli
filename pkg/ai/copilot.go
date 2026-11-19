@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 // Copilot contains params for detecting heartbeats from GitHub Copilot Chat sessions.
@@ -137,6 +137,7 @@ type (
 
 	copilotWorkspaceState struct {
 		workspaceDir string
+		folder       string
 		sessions     map[string]*copilotSession
 	}
 
@@ -148,6 +149,8 @@ type (
 
 	copilotTimedHeartbeat struct {
 		timestamp time.Time
+		shutdown  bool
+		legStart  time.Time
 		heartbeat heartbeat.Heartbeat
 	}
 )
@@ -203,32 +206,64 @@ func (m *copilotMessageWithURIs) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Parse parses VS Code GitHub Copilot Chat sessions for ai heartbeats.
+// Parse parses VS Code GitHub Copilot Chat sessions and Copilot CLI event.jsonl transcripts for ai heartbeats.
 func (g Copilot) Parse(ctx context.Context) (Heartbeats, error) {
 	workspaces, err := g.workspaceStates(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(workspaces) == 0 {
-		return Heartbeats{}, nil
-	}
-
 	logger := log.Extract(ctx)
-	logger.Debugf("Found %d Copilot workspace storage directories for %s", len(workspaces), g.Name())
 
 	var timed []copilotTimedHeartbeat
 
+	if len(workspaces) > 0 {
+		logger.Debugf("Found %d Copilot workspace storage directories for %s", len(workspaces), g.Name())
+	}
+
 	for _, ws := range workspaces {
-		sessionHeartbeats, requestMeta := g.sessionHeartbeats(ws)
-		timed = append(timed, sessionHeartbeats...)
+		workspaceHeartbeats, requestMeta := g.sessionHeartbeats(ws)
 
 		editHeartbeats, err := g.editHeartbeats(ws.workspaceDir, requestMeta)
 		if err != nil {
 			return nil, err
 		}
 
-		timed = append(timed, editHeartbeats...)
+		workspaceHeartbeats = append(workspaceHeartbeats, editHeartbeats...)
+
+		// Sessions belong to the folder VS Code opened for this workspace, not
+		// to whichever project is open when syncing, which is otherwise used as
+		// the fallback project folder.
+		if ws.folder != "" {
+			for i := range workspaceHeartbeats {
+				workspaceHeartbeats[i].heartbeat.ProjectPathOverride = ws.folder
+			}
+		}
+
+		timed = append(timed, workspaceHeartbeats...)
+	}
+
+	cliHeartbeats, err := g.cliHeartbeats(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	cliHeartbeats, err = g.reconcileSQLiteUsage(ctx, cliHeartbeats)
+	if err != nil {
+		logger.Warnf("failed reading Copilot usage database: %s", err)
+	}
+
+	timed = append(timed, cliHeartbeats...)
+
+	otel, err := g.otelHeartbeats(ctx, timed)
+	if err != nil {
+		logger.Warnf("failed reading Copilot OTel database: %s", err)
+	}
+
+	timed = append(timed, otel...)
+
+	if len(timed) == 0 {
+		return Heartbeats{}, nil
 	}
 
 	sort.SliceStable(timed, func(i, j int) bool {
@@ -237,7 +272,7 @@ func (g Copilot) Parse(ctx context.Context) (Heartbeats, error) {
 
 	heartbeats := make(Heartbeats, 0, len(timed))
 	for _, item := range timed {
-		if item.timestamp.Before(g.After) {
+		if !timestampAtOrAfterCutoff(item.timestamp, ParserConfig(g).sessionAfter(item.heartbeat.AISession)) {
 			continue
 		}
 
@@ -269,11 +304,38 @@ func (g Copilot) workspaceStates(ctx context.Context) ([]copilotWorkspaceState, 
 
 		workspaces = append(workspaces, copilotWorkspaceState{
 			workspaceDir: dir,
+			folder:       g.workspaceFolder(dir),
 			sessions:     sessions,
 		})
 	}
 
 	return workspaces, nil
+}
+
+// workspaceFolder returns the local folder VS Code opened for a workspace
+// storage directory, read from its workspace.json. It returns an empty string
+// for multi-root, remote or unreadable workspaces.
+func (g Copilot) workspaceFolder(workspaceDir string) string {
+	//nolint:gosec
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(workspaceDir, "workspace.json")))
+	if err != nil {
+		return ""
+	}
+
+	var workspace struct {
+		Folder string `json:"folder"`
+	}
+
+	if err := json.Unmarshal(data, &workspace); err != nil || !strings.HasPrefix(workspace.Folder, "file://") {
+		return ""
+	}
+
+	folder, err := g.fileURIToPath(workspace.Folder)
+	if err != nil {
+		return ""
+	}
+
+	return folder
 }
 
 func workspaceStorageDirs(ctx context.Context) ([]string, error) {
@@ -336,7 +398,7 @@ func (g Copilot) loadWorkspaceSessions(logger *log.Logger, workspaceDir string) 
 		}
 
 		info, err := entry.Info()
-		if err != nil || info.ModTime().Before(g.After) {
+		if err != nil || !timestampAtOrAfterCutoff(info.ModTime(), g.After) {
 			continue
 		}
 
@@ -609,7 +671,7 @@ func (g Copilot) sessionHeartbeats(
 				continue
 			}
 
-			plugin := aiPlugin(g, g.version(request.Agent))
+			plugin := "github-copilot/" + unknownIfEmpty(g.version(request.Agent))
 			requestMeta[request.RequestID] = copilotRequestMeta{
 				timestamp: requestTime,
 				plugin:    plugin,
@@ -740,11 +802,14 @@ func (Copilot) tokenDelta(tokens heartbeat.AITokens) (int64, int64) {
 
 func (g Copilot) hasTokenDelta(tokens heartbeat.AITokens) bool {
 	input, output := g.tokenDelta(tokens)
-	return input > 0 || output > 0
+	cachedInput := tokens.CurrentCachedInput - tokens.LastCachedInput
+
+	return input > 0 || cachedInput > 0 || output > 0
 }
 
 func (Copilot) advanceTokens(tokens heartbeat.AITokens) heartbeat.AITokens {
 	tokens.LastInput = tokens.CurrentInput
+	tokens.LastCachedInput = tokens.CurrentCachedInput
 	tokens.LastOutput = tokens.CurrentOutput
 
 	return tokens
@@ -842,6 +907,19 @@ func (g Copilot) editHeartbeats(
 ) ([]copilotTimedHeartbeat, error) {
 	editSessionsDir := filepath.Join(workspaceDir, "chatEditingSessions")
 
+	info, err := os.Stat(editSessionsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("failed reading copilot edit sessions %q: %s", editSessionsDir, err)
+	}
+
+	if !info.IsDir() {
+		return nil, fmt.Errorf("copilot edit sessions %q is not a directory", editSessionsDir)
+	}
+
 	entries, err := os.ReadDir(editSessionsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -880,7 +958,7 @@ func (Copilot) fileModifiedAfter(path string, after time.Time) bool {
 		return false
 	}
 
-	return !info.ModTime().Before(after)
+	return timestampAtOrAfterCutoff(info.ModTime(), after)
 }
 
 func (g Copilot) parseEditState(
@@ -1132,7 +1210,7 @@ func (g Copilot) responsePaths(item copilotResponseItem) []string {
 		for key, ref := range message.URIs {
 			path := ref.FSPath
 			if path == "" {
-				path = ref.Path
+				path = g.uriPathToFilePath(ref.Path)
 			}
 
 			if path == "" && strings.HasPrefix(key, "file://") {
@@ -1161,13 +1239,24 @@ func (g Copilot) responsePaths(item copilotResponseItem) []string {
 	return files
 }
 
-func (Copilot) fileURIToPath(raw string) (string, error) {
+func (g Copilot) fileURIToPath(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return "", err
 	}
 
-	return parsed.Path, nil
+	return g.uriPathToFilePath(parsed.Path), nil
+}
+
+// uriPathToFilePath converts the path of a file URI to a local path. Windows
+// file URIs keep a slash before the drive letter (/c:/Users/...), which
+// filepath.Abs would otherwise resolve to C:\c:\Users\....
+func (Copilot) uriPathToFilePath(path string) string {
+	if len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+		return filepath.FromSlash(path[1:])
+	}
+
+	return path
 }
 
 func (Copilot) shouldTrackReadPath(path string) bool {

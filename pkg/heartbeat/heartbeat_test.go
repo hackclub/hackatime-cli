@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/version"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/version"
 
 	"github.com/matishsiao/goInfo"
 	"github.com/stretchr/testify/assert"
@@ -67,17 +67,60 @@ func TestNew(t *testing.T) {
 	}, h)
 }
 
+func TestNewWithAITokens(t *testing.T) {
+	h := heartbeat.NewWithAITokens(
+		heartbeat.PointerTo(5),
+		"session-1",
+		heartbeat.AITokens{
+			LastInput:          10,
+			LastCachedInput:    3,
+			LastOutput:         20,
+			CurrentInput:       7,
+			CurrentCachedInput: 11,
+			CurrentOutput:      25,
+		},
+		"feature/branch",
+		heartbeat.AICodingCategory.String(),
+		heartbeat.PointerTo(12),
+		"testdata/main.go",
+		heartbeat.FileType,
+		heartbeat.PointerTo(2),
+		false,
+		heartbeat.PointerTo(true),
+		heartbeat.PointerTo("Go"),
+		"Golang",
+		heartbeat.PointerTo(42),
+		heartbeat.PointerTo(100),
+		"/path/to/file",
+		"billing",
+		true,
+		"pci",
+		"/custom-path",
+		1592868313.541149,
+		"wakatime/13.0.7",
+	)
+
+	assert.Equal(t, "session-1", h.AISession)
+	assert.Zero(t, h.AIInputTokens)
+	assert.Equal(t, int64(8), h.AICachedInputTokens)
+	assert.Equal(t, int64(5), h.AIOutputTokens)
+	assert.Equal(t, heartbeat.AICodingCategory.String(), h.Category)
+	assert.Equal(t, "testdata/main.go", h.Entity)
+	assert.True(t, h.ProjectFromGitRemote)
+}
+
 func TestHeartbeat_ID(t *testing.T) {
 	h := heartbeat.Heartbeat{
-		Branch:     heartbeat.PointerTo("heartbeat"),
-		Category:   heartbeat.CodingCategory.String(),
-		Entity:     "/tmp/main.go",
-		EntityType: heartbeat.FileType,
-		IsWrite:    heartbeat.PointerTo(true),
-		Project:    heartbeat.PointerTo("wakatime"),
-		Time:       1592868313.541149,
+		Branch:         heartbeat.PointerTo("heartbeat"),
+		Category:       heartbeat.CodingCategory.String(),
+		CursorPosition: heartbeat.PointerTo(42),
+		Entity:         "/tmp/main.go",
+		EntityType:     heartbeat.FileType,
+		IsWrite:        heartbeat.PointerTo(true),
+		Project:        heartbeat.PointerTo("wakatime"),
+		Time:           1592868313.541149,
 	}
-	assert.Equal(t, "1592868313.541149-nil-file-coding-wakatime-heartbeat-/tmp/main.go-true", h.ID())
+	assert.Equal(t, "1592868313.541149-42-file-coding-wakatime-heartbeat-/tmp/main.go-true", h.ID())
 }
 
 func TestHeartbeat_ID_NilFields(t *testing.T) {
@@ -223,6 +266,26 @@ func TestUserAgent(t *testing.T) {
 	assert.Equal(t, expected, heartbeat.UserAgent(t.Context(), "testplugin"))
 }
 
+func TestUserAgentMissingPluginVersion(t *testing.T) {
+	info, err := goInfo.GetInfo()
+	require.NoError(t, err)
+
+	expected := fmt.Sprintf(
+		"wakatime/%s (%s-%s-%s) %s Claude/unknown macos-wakatime/5.28.3",
+		version.Version,
+		runtime.GOOS,
+		info.Core,
+		info.Platform,
+		runtime.Version(),
+	)
+
+	assert.Equal(
+		t,
+		expected,
+		heartbeat.UserAgent(t.Context(), "Claude/ macos-wakatime/5.28.3"),
+	)
+}
+
 func TestRemoteAddressRegex(t *testing.T) {
 	tests := map[string]struct {
 		Heartbeat heartbeat.Heartbeat
@@ -247,6 +310,18 @@ func TestRemoteAddressRegex(t *testing.T) {
 		"invalid": {
 			Heartbeat: heartbeat.Heartbeat{Entity: "http://192.168.1.2"},
 			Expected:  false,
+		},
+		"non-file": {
+			Heartbeat: heartbeat.Heartbeat{Entity: "ssh://user@192.168.1.2/main.go", EntityType: heartbeat.AppType},
+			Expected:  false,
+		},
+		"unsaved file": {
+			Heartbeat: heartbeat.Heartbeat{
+				Entity:          "ssh://user@192.168.1.2/main.go",
+				EntityType:      heartbeat.FileType,
+				IsUnsavedEntity: true,
+			},
+			Expected: false,
 		},
 	}
 

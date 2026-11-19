@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/output"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/output"
 )
 
 type (
@@ -69,17 +69,17 @@ func NewHandle(caller Caller, opts ...heartbeat.HandleOption) heartbeat.Handle {
 // Expects an array of users for the current day. Will return an error otherwise.
 func RenderFileExperts(d *FileExperts, out output.Output) (string, error) {
 	if d == nil {
-		return "", nil
+		return renderEmptyFileExperts(out), nil
 	}
 
 	if len(d.Data) == 0 {
-		return "", nil
+		return renderEmptyFileExperts(out), nil
 	}
 
 	if out == output.RawJSONOutput {
 		data, err := json.Marshal(d)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal json file experts: %s", err)
+			return renderEmptyFileExperts(out), fmt.Errorf("failed to marshal json file experts: %s", err)
 		}
 
 		return string(data), nil
@@ -118,7 +118,7 @@ func RenderFileExperts(d *FileExperts, out output.Output) (string, error) {
 
 		data, err := json.Marshal(devs)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal json simplified file experts: %s", err)
+			return renderEmptyFileExperts(out), fmt.Errorf("failed to marshal json simplified file experts: %s", err)
 		}
 
 		return string(data), nil
@@ -135,8 +135,20 @@ func RenderFileExperts(d *FileExperts, out output.Output) (string, error) {
 	}
 
 	if len(parts) == 0 {
-		return "", nil
+		return renderEmptyFileExperts(out), nil
 	}
 
 	return strings.Join(parts, " | "), nil
+}
+
+func renderEmptyFileExperts(out output.Output) string {
+	if out == output.TextOutput {
+		return ""
+	}
+
+	if out == output.RawJSONOutput {
+		return `{"data":[]}`
+	}
+
+	return "{}"
 }

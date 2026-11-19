@@ -6,10 +6,10 @@ import (
 	"log"
 	"os"
 
-	"github.com/wakatime/wakatime-cli/pkg/api"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
+	"github.com/hackclub/hackatime-cli/pkg/api"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -26,8 +26,8 @@ func NewRootCMD() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "wakatime-cli",
-		Short: "Command line interface used by all WakaTime text editor plugins.",
+		Use:   "hackatime-cli",
+		Short: "Command line interface used by Hackatime editor plugins.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := RunE(cmd, v); err != nil {
 				var errexitcode exitcode.Err
@@ -60,13 +60,14 @@ func setFlags(cmd *cobra.Command, v *viper.Viper) {
 	flags.String(
 		"api-url",
 		"",
-		"API base url used when sending heartbeats and fetching code stats. Defaults to https://api.wakatime.com/api/v1/.",
+		"API base url used when sending heartbeats and fetching code stats. Defaults to"+
+			" https://hackatime.hackclub.com/api/hackatime/v1.",
 	)
 	flags.String(
 		"apiurl",
 		"",
 		"(deprecated) API base url used when sending heartbeats and fetching code stats. Defaults to"+
-			" https://api.wakatime.com/api/v1/.",
+			" https://hackatime.hackclub.com/api/hackatime/v1.",
 	)
 	flags.String(
 		"category",
@@ -78,7 +79,12 @@ func setFlags(cmd *cobra.Command, v *viper.Viper) {
 			" \"writing docs\", \"code reviewing\", \"browsing\","+
 			" \"translating\", or \"designing\". Defaults to \"coding\".",
 	)
-	flags.String("config", "", "Optional config file. Defaults to '~/.wakatime.cfg'.")
+	flags.String(
+		"config",
+		"",
+		"Optional config file. Uses $WAKATIME_HOME/.wakatime.cfg when set, then an existing ~/.wakatime.cfg, "+
+			"otherwise $XDG_CONFIG_HOME/wakatime/wakatime.cfg (~/.config/wakatime/wakatime.cfg by default).",
+	)
 	flags.String("internal-config", "", "Optional internal config file. Defaults to '~/.wakatime/wakatime-internal.cfg'.")
 	flags.String("config-read", "", "Prints value for the given config key, then exits.")
 	flags.String(
@@ -171,7 +177,7 @@ func setFlags(cmd *cobra.Command, v *viper.Viper) {
 		"Normally files that don't exist on disk are skipped and not tracked. When this option is present,"+
 			" the main heartbeat file will be tracked even if it doesn't exist. To set this flag on"+
 			" extra heartbeats, use the 'is_unsaved_entity' json key.")
-	flags.String("key", "", "Your wakatime api key; uses api_key from ~/.wakatime.cfg by default.")
+	flags.String("key", "", "Your wakatime api key; uses api_key from the config file by default.")
 	flags.String("language", "", "Optional language name. If valid, takes priority over auto-detected language.")
 	flags.Int("lineno", 0, "Optional line number. This is the current line being edited.")
 	flags.Int(
@@ -252,9 +258,21 @@ func setFlags(cmd *cobra.Command, v *viper.Viper) {
 		"Parse AI transcript logs for Claude, Codex, Cursor, etc. and send any resulting AI heartbeats"+
 			" without requiring --entity.",
 	)
+	flags.Bool(
+		"sync-ai-heartbeats",
+		false,
+		"Alias for --sync-ai-activity.",
+	)
 	flags.Bool("sync-ai-disabled", false, "Disable parsing AI transcript logs when sending heartbeats. "+
 		"By default, AI transcript logs are parsed every time when sending heartbeats.")
 	flags.Bool("sync-ai-disable", false, "")
+	flags.StringSlice(
+		"exclude-ai",
+		nil,
+		"File path patterns to exclude from AI tracking. Heartbeats with category \"ai coding\""+
+			" matching any of these POSIX regex patterns will be skipped, while normal coding"+
+			" activity is still logged. Can be used more than once.",
+	)
 	flags.Int(
 		"sync-offline-activity",
 		offline.SyncMaxDefault,
@@ -281,14 +299,14 @@ func setFlags(cmd *cobra.Command, v *viper.Viper) {
 		"today-goal",
 		"",
 		"Prints time for the given goal id today, then exits"+
-			" Visit wakatime.com/api/v1/users/current/goals to find your goal id.")
+			" Visit <api-url>/users/current/goals to find your goal id.")
 	flags.Bool(
 		"user-agent",
 		false,
-		"(internal) Prints the wakatime-cli useragent, as it will be sent to the api, then exits.",
+		"(internal) Prints the hackatime-cli useragent, as it will be sent to the api, then exits.",
 	)
 	flags.Bool("verbose", false, "Turns on debug messages in log file, and sends diagnostics if a crash occurs.")
-	flags.Bool("version", false, "Prints the wakatime-cli version number, then exits.")
+	flags.Bool("version", false, "Prints the hackatime-cli version number, then exits.")
 	flags.Bool("write", false, "When set, tells api this heartbeat was triggered from writing to a file.")
 
 	// hide deprecated flags
@@ -300,6 +318,7 @@ func setFlags(cmd *cobra.Command, v *viper.Viper) {
 	_ = flags.MarkHidden("logfile")
 	_ = flags.MarkHidden("sync-ai-after")
 	_ = flags.MarkHidden("sync-ai-disable")
+	_ = flags.MarkHidden("sync-ai-heartbeats")
 
 	// hide internal flags
 	_ = flags.MarkHidden("offline-queue-file")
@@ -316,6 +335,6 @@ func setFlags(cmd *cobra.Command, v *viper.Viper) {
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := NewRootCMD().Execute(); err != nil {
-		log.Fatalf("failed to run wakatime-cli: %s", err)
+		log.Fatalf("failed to run hackatime-cli: %s", err)
 	}
 }

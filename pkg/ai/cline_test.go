@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hackclub/hackatime-cli/pkg/ai"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wakatime/wakatime-cli/pkg/ai"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
 )
 
 func TestClineParse(t *testing.T) {
@@ -44,6 +44,7 @@ func TestClineParse(t *testing.T) {
 
 	sayAPIReqStarted := "api_req_started"
 	sayTool := "tool"
+	askTool := "tool"
 
 	uiMessages := []map[string]any{
 		{
@@ -51,9 +52,21 @@ func TestClineParse(t *testing.T) {
 			"type": "say",
 			"say":  &sayAPIReqStarted,
 			"text": textJSON(map[string]any{
-				"request":   "<task>Fix the auth bug</task>\n# Current Working Directory (/workspace/project)",
-				"tokensIn":  90,
-				"tokensOut": 20,
+				"request":     "<task>Fix the auth bug</task>\n# Current Working Directory (/workspace/project)",
+				"tokensIn":    90,
+				"tokensOut":   20,
+				"cacheWrites": 10,
+				"cacheReads":  40,
+			}),
+		},
+		{
+			"ts":   int64(1740000001500),
+			"type": "ask",
+			"ask":  &askTool,
+			"text": textJSON(map[string]any{
+				"tool": "editedExistingFile",
+				"path": "/workspace/project/main.go",
+				"diff": "<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE",
 			}),
 		},
 		{
@@ -108,16 +121,17 @@ func TestClineParse(t *testing.T) {
 	assert.Equal(t, "1740000000000", got[0].AISession)
 	assert.Equal(t, "/workspace/project", got[0].ProjectPathOverride)
 	assert.Equal(t, len([]rune("Fix the auth bug")), got[0].AIPromptLength)
-	assert.EqualValues(t, 90, got[0].AIInputTokens)
+	assert.EqualValues(t, 100, got[0].AIInputTokens)
+	assert.EqualValues(t, 40, got[0].AICachedInputTokens)
 	assert.EqualValues(t, 20, got[0].AIOutputTokens)
-	assert.Contains(t, got[0].UserAgent, "Cline")
+	assert.Equal(t, "plugin/0.0.1", got[0].UserAgent)
 
 	assert.Equal(t, "/workspace/project/main.go", got[1].Entity)
 	require.NotNil(t, got[1].AILineChanges)
 	assert.Equal(t, 0, *got[1].AILineChanges)
 	require.NotNil(t, got[1].IsWrite)
 	assert.True(t, *got[1].IsWrite)
-	assert.Contains(t, got[1].UserAgent, "Cline")
+	assert.NotContains(t, got[1].UserAgent, "Cline/")
 	assert.Contains(t, got[1].UserAgent, "editor/1.2.3")
 
 	assert.Equal(t, "/workspace/project/new.go", got[2].Entity)

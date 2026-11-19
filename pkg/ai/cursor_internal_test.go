@@ -1,17 +1,25 @@
-//go:build !freebsd && !openbsd && !netbsd && !dragonfly
+//go:build (!freebsd && !openbsd && !netbsd && !dragonfly) || (freebsd && (amd64 || arm64)) || (openbsd && (amd64 || arm64))
 
 package ai
 
 import (
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
 )
 
 func TestCursorHelpers(t *testing.T) {
+	t.Run("cutoff includes a four second overlap", func(t *testing.T) {
+		cutoff := time.Date(2026, 7, 15, 19, 6, 59, 531000000, time.UTC)
+
+		assert.Equal(t, cutoff.Add(-4*time.Second), Cursor{After: cutoff}.bufferedCutoff())
+		assert.True(t, Cursor{}.bufferedCutoff().IsZero())
+	})
+
 	t.Run("file path prefers explicit path then code block", func(t *testing.T) {
 		assert.Equal(t, "/tmp/main.go", Cursor{}.filePath("/tmp/main.go", nil))
 		assert.Equal(t, "/tmp/from-block.go", Cursor{}.filePath("", []cursorCodeBlock{{
@@ -28,6 +36,184 @@ func TestCursorHelpers(t *testing.T) {
 		assert.False(t, Cursor{}.looksLikeUnifiedDiff("plain text"))
 		assert.Equal(t, 1, Cursor{}.lineChangesFromDiff("--- a\n+++ b\n-old\n+new\n+extra"))
 	})
+
+	t.Run("token counts accept camel case usage", func(t *testing.T) {
+		input := 7
+		total := 11
+
+		assert.Equal(t,
+			heartbeat.AITokens{CurrentInput: 7, CurrentOutput: 11},
+			Cursor{}.cursorTokenCounts(cursorLogLine{
+				Usage: &cursorUsage{
+					InputTokensCamel: &input,
+					TotalTokensCamel: &total,
+				},
+			}, heartbeat.AITokens{}),
+		)
+	})
+
+	t.Run("token counts treat snake case token count as cumulative", func(t *testing.T) {
+		input := 7
+		output := 11
+
+		assert.Equal(t,
+			heartbeat.AITokens{LastInput: 3, LastOutput: 5, CurrentInput: 7, CurrentOutput: 11},
+			Cursor{}.cursorTokenCounts(cursorLogLine{
+				TokenCount: &cursorTokenCount{
+					InputTokensSnake:  &input,
+					OutputTokensSnake: &output,
+				},
+			}, heartbeat.AITokens{LastInput: 3, LastOutput: 5}),
+		)
+	})
+
+	t.Run("zero token counts preserve pending tokens", func(t *testing.T) {
+		zero := 0
+		output := 4
+		previous := heartbeat.AITokens{
+			LastInput:     3,
+			LastOutput:    5,
+			CurrentInput:  10,
+			CurrentOutput: 16,
+		}
+
+		assert.Equal(t,
+			previous,
+			Cursor{}.cursorTokenCounts(cursorLogLine{
+				TokenCount: &cursorTokenCount{
+					InputTokens:  &zero,
+					OutputTokens: &zero,
+				},
+			}, previous),
+		)
+
+		assert.Equal(t,
+			heartbeat.AITokens{
+				LastInput:     3,
+				LastOutput:    5,
+				CurrentInput:  10,
+				CurrentOutput: 16,
+			},
+			Cursor{}.cursorTokenCounts(cursorLogLine{
+				TokenCount: &cursorTokenCount{
+					InputTokens:  &zero,
+					OutputTokens: &output,
+				},
+			}, previous),
+		)
+
+		output = 20
+		assert.Equal(t,
+			heartbeat.AITokens{
+				LastInput:     3,
+				LastOutput:    5,
+				CurrentInput:  10,
+				CurrentOutput: 20,
+			},
+			Cursor{}.cursorTokenCounts(cursorLogLine{
+				TokenCount: &cursorTokenCount{
+					InputTokens:  &zero,
+					OutputTokens: &output,
+				},
+			}, previous),
+		)
+
+		assert.Equal(t,
+			previous,
+			Cursor{}.cursorTokenCounts(cursorLogLine{
+				Usage: &cursorUsage{
+					InputTokensCamel:  &zero,
+					OutputTokensCamel: &zero,
+				},
+			}, previous),
+		)
+	})
+}
+
+func TestCursorTokenCounts_UsageFallback(t *testing.T) {
+	zero := 0
+	input := 20
+	output := 30
+	countInput := 17
+	countOutput := 25
+	previous := heartbeat.AITokens{
+		LastInput:     3,
+		LastOutput:    5,
+		CurrentInput:  10,
+		CurrentOutput: 16,
+	}
+	usage := &cursorUsage{InputTokens: &input, OutputTokens: &output}
+	wantUsage := heartbeat.AITokens{
+		LastInput:     3,
+		LastOutput:    5,
+		CurrentInput:  20,
+		CurrentOutput: 30,
+	}
+
+	tests := []struct {
+		name string
+		line cursorLogLine
+		want heartbeat.AITokens
+	}{
+		{
+			name: "zero placeholders fall back to snake case usage",
+			line: cursorLogLine{
+				TokenCount: &cursorTokenCount{InputTokens: &zero, OutputTokens: &zero, TotalTokens: &zero},
+				Usage:      usage,
+			},
+			want: wantUsage,
+		},
+		{
+			name: "snake case placeholders fall back to camel case usage",
+			line: cursorLogLine{
+				TokenCount: &cursorTokenCount{InputTokensSnake: &zero, OutputTokensSnake: &zero},
+				Usage:      &cursorUsage{InputTokensCamel: &input, OutputTokensCamel: &output},
+			},
+			want: wantUsage,
+		},
+		{
+			name: "empty token count falls back to usage",
+			line: cursorLogLine{TokenCount: &cursorTokenCount{}, Usage: usage},
+			want: wantUsage,
+		},
+		{
+			name: "usable token count retains precedence",
+			line: cursorLogLine{
+				TokenCount: &cursorTokenCount{InputTokens: &countInput, OutputTokens: &countOutput},
+				Usage:      usage,
+			},
+			want: heartbeat.AITokens{
+				LastInput:     3,
+				LastOutput:    5,
+				CurrentInput:  17,
+				CurrentOutput: 25,
+			},
+		},
+		{
+			name: "zero placeholders without usage preserve pending tokens",
+			line: cursorLogLine{TokenCount: &cursorTokenCount{InputTokens: &zero, OutputTokens: &zero}},
+			want: previous,
+		},
+		{
+			name: "empty token count without usage preserves pending tokens",
+			line: cursorLogLine{TokenCount: &cursorTokenCount{}},
+			want: previous,
+		},
+		{
+			name: "zero usage preserves pending tokens",
+			line: cursorLogLine{
+				TokenCount: &cursorTokenCount{},
+				Usage:      &cursorUsage{InputTokens: &zero, OutputTokens: &zero},
+			},
+			want: previous,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, Cursor{}.cursorTokenCounts(tt.line, previous))
+		})
+	}
 }
 
 func TestCursorHeartbeatFallbacks(t *testing.T) {
@@ -43,11 +229,13 @@ func TestCursorHeartbeatFallbacks(t *testing.T) {
 			RawArgs: `{"target_file":"/tmp/raw-edit.go","code_edit":"one\ntwo"}`,
 			Status:  "completed",
 		},
-	}, "", heartbeat.AITokens{})
+	}, "", "composer-2.5", heartbeat.AITokens{})
 	require.Len(t, editHeartbeats, 1)
 	edit := &editHeartbeats[0]
 	require.NotNil(t, edit)
 	assert.Equal(t, "/tmp/raw-edit.go", edit.Entity)
+	assert.Contains(t, edit.UserAgent, "composer/2.5")
+	assert.Contains(t, edit.UserAgent, "Cursor")
 	require.NotNil(t, edit.AILineChanges)
 	assert.Equal(t, 2, *edit.AILineChanges)
 	require.NotNil(t, edit.IsWrite)
@@ -65,7 +253,7 @@ func TestCursorHeartbeatFallbacks(t *testing.T) {
 		CodeBlocks: []cursorCodeBlock{{
 			URI: &cursorURI{FSPath: "/tmp/from-read-block.go"},
 		}},
-	}, "", heartbeat.AITokens{})
+	}, "", "", heartbeat.AITokens{})
 	require.Len(t, readHeartbeats, 1)
 	read := &readHeartbeats[0]
 	require.NotNil(t, read)
@@ -78,7 +266,7 @@ func TestCursorHeartbeatFallbacks(t *testing.T) {
 		CreatedAt: createdAt,
 		Type:      1,
 		Text:      "Please edit the file",
-	}, "/tmp", heartbeat.AITokens{})
+	}, "/tmp", "", heartbeat.AITokens{})
 	require.Len(t, appHeartbeats, 1)
 	assert.Equal(t, "Cursor composer-1", appHeartbeats[0].Entity)
 	assert.Equal(t, heartbeat.AppType, appHeartbeats[0].EntityType)
@@ -94,5 +282,141 @@ func TestCursorHeartbeatFallbacks(t *testing.T) {
 			Name:   "unknown_tool",
 			Status: "completed",
 		},
-	}, "", nil))
+	}, "", "", nil))
+}
+
+func TestCursorModelName(t *testing.T) {
+	tests := map[string]string{
+		`{"modelName":"claude-3.7-sonnet"}`:                                "claude-3.7-sonnet",
+		`{"selectedModel":{"name":"gpt-5 high"}}`:                          "gpt-5-high",
+		`{"modelDetails":{"model_id":"anthropic/claude-sonnet-4.5"}}`:      "anthropic/claude-sonnet-4.5",
+		`{"nestedModelConfig":{"value":{"slug":"gemini-3-pro-preview"}}}`:  "gemini-3-pro-preview",
+		`{"modelName":"` + strings.Repeat("x", 129) + `"}`:                 "",
+		`{"toolFormerData":{"name":"edit_file_v2"},"model_added_lines":3}`: "",
+	}
+
+	for raw, expected := range tests {
+		assert.Equal(t, expected, Cursor{}.modelName([]byte(raw)))
+	}
+}
+
+func TestCursorModelUserAgentToken(t *testing.T) {
+	tests := map[string]string{
+		"composer-2.5":                "composer/2.5",
+		"composer/2.5":                "composer/2.5",
+		"claude-3.7-sonnet":           "claude/3.7-sonnet",
+		"gpt 5 high":                  "gpt/5-high",
+		"anthropic/claude-sonnet-4.5": "anthropic/claude-sonnet-4.5",
+		"claude-opus-5-5":             "claude-opus/5-5",
+		"grok-code-fast-1":            "grok-code-fast/1",
+		"auto":                        "auto",
+		"":                            "",
+		"/":                           "",
+	}
+
+	for raw, expected := range tests {
+		assert.Equal(t, expected, cursorModelUserAgentToken(raw))
+
+		parser := Cursor{FallbackUserAgent: "Cursor/2 vscode-wakatime/3"}
+		assert.Equal(t, strings.TrimSpace(expected+" Cursor/2 vscode-wakatime/3"),
+			parser.userAgent("Cursor session", raw), raw)
+	}
+}
+
+func TestCursorModelSwitchPreservesEditor(t *testing.T) {
+	const (
+		entity = "/workspace/main.go"
+		plugin = "neovim/0.12 wakatime.nvim/12"
+	)
+
+	parser := Cursor{FallbackUserAgent: plugin, UserAgents: map[string]string{entity: plugin}}
+
+	for _, tt := range []struct{ model, token string }{
+		{"auto", "auto"},
+		{"anthropic/claude-sonnet-4.5", "anthropic/claude-sonnet-4.5"},
+		{"claude-opus-5-5", "claude-opus/5-5"},
+		{"", "claude-opus/5-5"},
+	} {
+		got := parser.userAgent(entity, tt.model)
+		assert.Equal(t, tt.token+" neovim/0.12 Cursor wakatime.nvim/12", got)
+		parser.UserAgents[entity] = got
+		assert.Equal(t, got, parser.userAgent(entity, tt.model))
+	}
+}
+
+func TestCursorDistinctModelUsageSurvivesMerging(t *testing.T) {
+	parser := Cursor{FallbackUserAgent: "Cursor/2 vscode-wakatime/3"}
+	stamp := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	file := parser.cursorHeartbeats(cursorLogLine{
+		BubbleID: "session", CreatedAt: stamp, Type: 2,
+		ToolFormerData: &cursorToolFormerData{
+			Name: "edit_file", Status: "completed",
+			RawArgs: `{"target_file":"/workspace/main.go","code_edit":"updated"}`,
+		},
+	}, "", "provider-a/custom-model-1", heartbeat.AITokens{CurrentInput: 10})
+	require.Len(t, file, 1)
+	assert.Equal(t, "provider-a/custom-model-1 Cursor/2 vscode-wakatime/3", file[0].UserAgent)
+
+	app := parser.cursorHeartbeats(cursorLogLine{
+		BubbleID: "session", CreatedAt: stamp.Add(time.Second), Type: 2, Text: "done",
+	}, "", "provider-b/custom-model-1", heartbeat.AITokens{CurrentInput: 20})
+	require.Len(t, app, 1)
+	assert.Equal(t, "provider-b/custom-model-1 Cursor/2 vscode-wakatime/3", app[0].UserAgent)
+
+	got := replaceAppHeartbeats(append(file, app...))
+	require.Len(t, got, 2)
+	assert.Equal(t, int64(10), got[0].AIInputTokens)
+	assert.Equal(t, int64(20), got[1].AIInputTokens)
+}
+
+func TestCursorUserAgentWithModel(t *testing.T) {
+	assert.Equal(
+		t,
+		"composer/2.5 Cursor/1.105.1",
+		cursorUserAgentWithModel("Cursor/1.105.1", "composer/2.5"),
+	)
+	assert.Equal(
+		t,
+		"wakatime/13.0.7 (macOS-arm64-arm64) go1.26 composer/2.5 Cursor/1.105.1",
+		cursorUserAgentWithModel(
+			"wakatime/13.0.7 (macOS-arm64-arm64) go1.26 Cursor/1.105.1",
+			"composer/2.5",
+		),
+	)
+	assert.Equal(
+		t,
+		"composer/2.5 Cursor plugin/0.1.0",
+		cursorUserAgentWithModel("Cursor plugin/0.1.0", "composer/2.5"),
+	)
+	assert.Equal(
+		t,
+		"composer/2.5 Cursor/1.105.1",
+		cursorUserAgentWithModel("composer/2.5 Cursor/1.105.1", "composer/2.5"),
+	)
+}
+
+func TestCursorUserAgentIncludesModelAndCursorAttribution(t *testing.T) {
+	parser := Cursor{
+		FallbackUserAgent: "codex-cli/0.144.4 codex-cli-wakatime/1.0.0",
+		UserAgents: map[string]string{
+			"/tmp/dependencies.ts": "neovim/0.12 wakatime.nvim/12.0.0",
+		},
+	}
+
+	assert.Equal(
+		t,
+		"grok/4.5 Cursor codex-cli/0.144.4 codex-cli-wakatime/1.0.0",
+		parser.userAgent("Cursor session-id", "grok-4.5"),
+	)
+	assert.Equal(
+		t,
+		"grok/4.5 neovim/0.12 Cursor wakatime.nvim/12.0.0",
+		parser.userAgent("/tmp/dependencies.ts", "grok-4.5"),
+	)
+	assert.Equal(t, "grok/4.5 Cursor", Cursor{}.userAgent("Cursor session-id", "grok-4.5"))
+	assert.Equal(
+		t,
+		"grok/4.5 Cursor/3.11.25",
+		Cursor{FallbackUserAgent: "Cursor/3.11.25"}.userAgent("Cursor session-id", "grok-4.5"),
+	)
 }

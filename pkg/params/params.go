@@ -18,16 +18,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/api"
-	"github.com/wakatime/wakatime-cli/pkg/apikey"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
-	"github.com/wakatime/wakatime-cli/pkg/output"
-	"github.com/wakatime/wakatime-cli/pkg/project"
-	"github.com/wakatime/wakatime-cli/pkg/regex"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
+	"github.com/hackclub/hackatime-cli/pkg/api"
+	"github.com/hackclub/hackatime-cli/pkg/apikey"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
+	"github.com/hackclub/hackatime-cli/pkg/output"
+	"github.com/hackclub/hackatime-cli/pkg/project"
+	"github.com/hackclub/hackatime-cli/pkg/regex"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/viper"
@@ -251,6 +251,8 @@ type (
 	// AIParams contains AI sync command parameters.
 	AIParams struct {
 		SyncDisabled bool
+		// Exclude contains entity file path patterns excluded from AI tracking.
+		Exclude []regex.Regex
 	}
 
 	// Offline contains offline related parameters.
@@ -678,6 +680,43 @@ func LoadHeartbeatParams(ctx context.Context, v *viper.Viper, order FlagReadOrde
 		timeSecs = float64(time.Now().UnixNano()) / 1000000000
 	}
 
+	processingParams, err := LoadHeartbeatProcessingParams(ctx, v, order)
+	if err != nil {
+		return Heartbeat{}, err
+	}
+
+	var language *string
+	if l := vipertools.GetString(v, "language"); l != "" {
+		language = &l
+	}
+
+	return Heartbeat{
+		AIParams:          processingParams.AIParams,
+		AILineChanges:     aiLineChanges,
+		Category:          category,
+		CursorPosition:    cursorPosition,
+		Entity:            entity,
+		ExtraHeartbeats:   extraHeartbeats,
+		EntityType:        entityType,
+		GuessLanguage:     processingParams.GuessLanguage,
+		HumanLineChanges:  humanLineChanges,
+		IsUnsavedEntity:   v.GetBool("is-unsaved-entity"),
+		IsWrite:           isWrite,
+		Language:          language,
+		LanguageAlternate: vipertools.GetString(v, "alternate-language"),
+		LineNumber:        lineNumber,
+		LinesInFile:       linesInFile,
+		LocalFile:         vipertools.GetString(v, "local-file"),
+		Time:              timeSecs,
+		Filter:            processingParams.Filter,
+		Project:           processingParams.Project,
+		Sanitize:          processingParams.Sanitize,
+	}, nil
+}
+
+// LoadHeartbeatProcessingParams loads the heartbeat params needed by the preprocessing pipeline
+// without requiring a command-line heartbeat entity.
+func LoadHeartbeatProcessingParams(ctx context.Context, v *viper.Viper, order FlagReadOrder) (Heartbeat, error) {
 	filterParams, err := loadFilterParams(ctx, v, order)
 	if err != nil {
 		return Heartbeat{}, fmt.Errorf("failed to load filter params: %s", err)
@@ -698,32 +737,12 @@ func LoadHeartbeatParams(ctx context.Context, v *viper.Viper, order FlagReadOrde
 		return Heartbeat{}, fmt.Errorf("failed to load ai params: %s", err)
 	}
 
-	var language *string
-	if l := vipertools.GetString(v, "language"); l != "" {
-		language = &l
-	}
-
 	return Heartbeat{
-		AIParams:          aiParams,
-		AILineChanges:     aiLineChanges,
-		Category:          category,
-		CursorPosition:    cursorPosition,
-		Entity:            entity,
-		ExtraHeartbeats:   extraHeartbeats,
-		EntityType:        entityType,
-		GuessLanguage:     vipertools.FirstNonEmptyBool(v, guessLanguageOrder[order]...),
-		HumanLineChanges:  humanLineChanges,
-		IsUnsavedEntity:   v.GetBool("is-unsaved-entity"),
-		IsWrite:           isWrite,
-		Language:          language,
-		LanguageAlternate: vipertools.GetString(v, "alternate-language"),
-		LineNumber:        lineNumber,
-		LinesInFile:       linesInFile,
-		LocalFile:         vipertools.GetString(v, "local-file"),
-		Time:              timeSecs,
-		Filter:            filterParams,
-		Project:           projectParams,
-		Sanitize:          sanitizeParams,
+		AIParams:      aiParams,
+		GuessLanguage: vipertools.FirstNonEmptyBool(v, guessLanguageOrder[order]...),
+		Filter:        filterParams,
+		Project:       projectParams,
+		Sanitize:      sanitizeParams,
 	}, nil
 }
 
@@ -882,11 +901,30 @@ func loadProjectMapPatterns(ctx context.Context, v *viper.Viper, prefix string) 
 }
 
 // LoadAIParams loads ai sync params from viper.Viper instance.
-func LoadAIParams(_ context.Context, v *viper.Viper, _ FlagReadOrder) (AIParams, error) {
+func LoadAIParams(ctx context.Context, v *viper.Viper, _ FlagReadOrder) (AIParams, error) {
+	exclude := v.GetStringSlice("exclude-ai")
+	exclude = append(exclude, v.GetStringSlice("settings.exclude_ai")...)
+
+	var excludePatterns []regex.Regex
+
+	for _, s := range exclude {
+		patterns, err := parseBoolOrRegexList(ctx, s)
+		if err != nil {
+			return AIParams{}, fmt.Errorf(
+				"failed to parse regex ai exclude param %q: %s",
+				s,
+				err,
+			)
+		}
+
+		excludePatterns = append(excludePatterns, patterns...)
+	}
+
 	return AIParams{
 		SyncDisabled: v.GetBool("sync-ai-disable") ||
 			v.GetBool("sync-ai-disabled") ||
 			v.GetBool("settings.sync_ai_disabled"),
+		Exclude: excludePatterns,
 	}, nil
 }
 
@@ -1396,8 +1434,9 @@ func (p Offline) String() string {
 // String implements fmt.Stringer interface.
 func (p AIParams) String() string {
 	return fmt.Sprintf(
-		"disabled: %t",
+		"disabled: %t, exclude: '%s'",
 		p.SyncDisabled,
+		p.Exclude,
 	)
 }
 

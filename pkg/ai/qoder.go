@@ -1,4 +1,4 @@
-//go:build !freebsd && !openbsd && !netbsd && !dragonfly
+//go:build (!freebsd && !openbsd && !netbsd && !dragonfly) || (freebsd && (amd64 || arm64)) || (openbsd && (amd64 || arm64))
 
 package ai
 
@@ -13,12 +13,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
 )
 
 // Qoder contains params for detecting heartbeats from Qoder local activity.
 type Qoder ParserConfig
+
+const (
+	qoderRecentMessageRowLimit = 5000
+	qoderRecentPromptRowLimit  = 5000
+)
 
 type (
 	qoderMessageRow struct {
@@ -61,6 +66,7 @@ type (
 	qoderTokenInfo struct {
 		PromptTokens     int64 `json:"prompt_tokens"`
 		CompletionTokens int64 `json:"completion_tokens"`
+		CachedTokens     int64 `json:"cached_tokens"`
 	}
 
 	qoderToolResult struct {
@@ -91,6 +97,9 @@ type (
 
 // Parse parses Qoder's local SQLite cache for ai heartbeats.
 func (g Qoder) Parse(ctx context.Context) (Heartbeats, error) {
+	ctx, cancel := aiSQLiteContext(ctx)
+	defer cancel()
+
 	dbPath, err := g.localDBPath(ctx)
 	if err != nil {
 		return nil, err
@@ -104,12 +113,18 @@ func (g Qoder) Parse(ctx context.Context) (Heartbeats, error) {
 		return Heartbeats{}, nil
 	}
 
-	rows, err := g.queryRows(ctx, dbPath)
+	db, err := g.openDB(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close() // nolint:errcheck
+
+	rows, err := g.queryRows(ctx, db, dbPath)
 	if err != nil {
 		return nil, err
 	}
 
-	promptRows, err := g.queryPromptRows(ctx, dbPath)
+	promptRows, err := g.queryPromptRows(ctx, db, dbPath)
 	if err != nil {
 		return nil, err
 	}
@@ -122,8 +137,12 @@ func (g Qoder) Parse(ctx context.Context) (Heartbeats, error) {
 	var heartbeats Heartbeats
 
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		timestamp := time.UnixMilli(row.CreatedAtMS)
-		if timestamp.IsZero() || timestamp.Before(g.After) {
+		if timestamp.IsZero() || !timestampAtOrAfterCutoff(timestamp, ParserConfig(g).sessionAfter(row.SessionID)) {
 			continue
 		}
 
@@ -133,9 +152,7 @@ func (g Qoder) Parse(ctx context.Context) (Heartbeats, error) {
 				heartbeats = append(heartbeats, *heartbeat)
 			}
 		case "tool":
-			if heartbeat := g.qoderToolHeartbeat(row, timestamp); heartbeat != nil {
-				heartbeats = append(heartbeats, *heartbeat)
-			}
+			heartbeats = append(heartbeats, g.qoderToolHeartbeats(row, timestamp)...)
 		}
 	}
 
@@ -167,26 +184,38 @@ func (Qoder) localDBPath(ctx context.Context) (string, error) {
 }
 
 func (Qoder) localDBModifiedAfter(dbPath string, after time.Time) bool {
-	if after.IsZero() {
-		return true
-	}
-
-	info, err := os.Stat(dbPath)
-	if err != nil {
-		return false
-	}
-
-	return info.ModTime().After(after)
+	return aiSQLiteModifiedAfter(dbPath, after)
 }
 
-func (Qoder) queryRows(ctx context.Context, dbPath string) ([]qoderMessageRow, error) {
-	db, err := sql.Open("sqlite", dbPath)
+func (g Qoder) afterUnixMilli() int64 {
+	if g.After.IsZero() {
+		return 0
+	}
+
+	return g.After.UnixMilli()
+}
+
+func (Qoder) openDB(dbPath string) (*sql.DB, error) {
+	db, err := openAISQLiteDB(context.Background(), dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed opening qoder sqlite db %q: %s", dbPath, err)
 	}
-	defer db.Close() // nolint:errcheck
 
+	// limit to a single connection, so the pure-Go sqlite driver only
+	// allocates memory for one connection
+	db.SetMaxOpenConns(1)
+
+	return db, nil
+}
+
+func (g Qoder) queryRows(ctx context.Context, db *sql.DB, dbPath string) ([]qoderMessageRow, error) {
 	rows, err := db.QueryContext(ctx, `
+WITH recentQoderMessages AS (
+  SELECT rowid, session_id, request_id, role, tool_result, token_info, gmt_create
+  FROM chat_message
+  ORDER BY rowid DESC
+  LIMIT ?
+)
 SELECT
   m.session_id,
   COALESCE(s.project_uri, ''),
@@ -195,11 +224,12 @@ SELECT
   COALESCE(m.tool_result, ''),
   COALESCE(m.token_info, ''),
   COALESCE(m.gmt_create, 0)
-FROM chat_message m
+FROM recentQoderMessages m
 LEFT JOIN chat_session s ON s.session_id = m.session_id
 WHERE m.role IN ('assistant', 'tool')
+  AND COALESCE(m.gmt_create, 0) >= ?
 ORDER BY m.gmt_create ASC;
-`)
+`, qoderRecentMessageRowLimit, g.afterUnixMilli())
 	if err != nil {
 		return nil, fmt.Errorf("failed querying qoder sqlite db %q: %s", dbPath, err)
 	}
@@ -221,6 +251,12 @@ ORDER BY m.gmt_create ASC;
 			return nil, fmt.Errorf("failed scanning qoder sqlite row: %s", err)
 		}
 
+		if err := aiSQLiteRead(
+			ctx, row.SessionID, row.ProjectURI, row.RequestID, row.Role, row.ToolResult, row.TokenInfo,
+		); err != nil {
+			return nil, err
+		}
+
 		results = append(results, row)
 	}
 
@@ -231,23 +267,23 @@ ORDER BY m.gmt_create ASC;
 	return results, nil
 }
 
-func (Qoder) queryPromptRows(ctx context.Context, dbPath string) ([]qoderPromptRow, error) {
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed opening qoder sqlite db %q: %s", dbPath, err)
-	}
-	defer db.Close() // nolint:errcheck
-
+func (Qoder) queryPromptRows(ctx context.Context, db *sql.DB, dbPath string) ([]qoderPromptRow, error) {
 	rows, err := db.QueryContext(ctx, `
+WITH recentQoderPromptMessages AS (
+  SELECT rowid, session_id, gmt_create, role
+  FROM chat_message
+  ORDER BY rowid DESC
+  LIMIT ?
+)
 SELECT
   m.session_id,
   COALESCE(s.project_uri, ''),
   COALESCE(m.gmt_create, 0)
-FROM chat_message m
+FROM recentQoderPromptMessages m
 LEFT JOIN chat_session s ON s.session_id = m.session_id
 WHERE m.role = 'user'
 ORDER BY m.session_id ASC, m.gmt_create ASC;
-`)
+`, qoderRecentPromptRowLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed querying qoder prompt rows from sqlite db %q: %s", dbPath, err)
 	}
@@ -259,6 +295,10 @@ ORDER BY m.session_id ASC, m.gmt_create ASC;
 		var row qoderPromptRow
 		if err := rows.Scan(&row.SessionID, &row.ProjectURI, &row.CreatedAtMS); err != nil {
 			return nil, fmt.Errorf("failed scanning qoder prompt sqlite row: %s", err)
+		}
+
+		if err := aiSQLiteRead(ctx, row.SessionID, row.ProjectURI); err != nil {
+			return nil, err
 		}
 
 		results = append(results, row)
@@ -277,7 +317,7 @@ func (g Qoder) qoderAppHeartbeat(row qoderMessageRow, timestamp time.Time) *hear
 		return nil
 	}
 
-	if tokenInfo.PromptTokens == 0 && tokenInfo.CompletionTokens == 0 {
+	if tokenInfo.PromptTokens == 0 && tokenInfo.CompletionTokens == 0 && tokenInfo.CachedTokens == 0 {
 		return nil
 	}
 
@@ -287,8 +327,9 @@ func (g Qoder) qoderAppHeartbeat(row qoderMessageRow, timestamp time.Time) *hear
 		nil,
 		row.SessionID,
 		heartbeat.AITokens{
-			CurrentInput:  tokenInfo.PromptTokens,
-			CurrentOutput: tokenInfo.CompletionTokens,
+			CurrentInput:       max(tokenInfo.PromptTokens-tokenInfo.CachedTokens, 0),
+			CurrentCachedInput: max(tokenInfo.CachedTokens, 0),
+			CurrentOutput:      max(tokenInfo.CompletionTokens, 0),
 		},
 		"",
 		heartbeat.AICodingCategory.String(),
@@ -308,7 +349,7 @@ func (g Qoder) qoderAppHeartbeat(row qoderMessageRow, timestamp time.Time) *hear
 		"",
 		row.ProjectURI,
 		float64(timestamp.UnixMilli())/1000,
-		aiUserAgent(entity, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+		aiUserAgentWithModel(entity, g.UserAgents, g.FallbackUserAgent, "", ""),
 	)
 
 	return &h
@@ -316,7 +357,8 @@ func (g Qoder) qoderAppHeartbeat(row qoderMessageRow, timestamp time.Time) *hear
 
 func (g Qoder) withPromptLengths(heartbeats Heartbeats, prompts []qoderPrompt) Heartbeats {
 	for _, prompt := range prompts {
-		if prompt.Length == 0 || prompt.Timestamp.Before(g.After) {
+		if prompt.Length == 0 ||
+			!timestampAtOrAfterCutoff(prompt.Timestamp, ParserConfig(g).sessionAfter(prompt.SessionID)) {
 			continue
 		}
 
@@ -378,7 +420,7 @@ func (g Qoder) qoderPromptHeartbeat(prompt qoderPrompt) heartbeat.Heartbeat {
 		"",
 		prompt.ProjectURI,
 		float64(prompt.Timestamp.UnixMilli())/1000,
-		aiUserAgent(entity, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+		aiUserAgentWithModel(entity, g.UserAgents, g.FallbackUserAgent, "", ""),
 	)
 	h.AISession = prompt.SessionID
 	h.AIPromptLength = prompt.Length
@@ -386,63 +428,72 @@ func (g Qoder) qoderPromptHeartbeat(prompt qoderPrompt) heartbeat.Heartbeat {
 	return h
 }
 
-func (g Qoder) qoderToolHeartbeat(row qoderMessageRow, timestamp time.Time) *heartbeat.Heartbeat {
+func (g Qoder) qoderToolHeartbeats(row qoderMessageRow, timestamp time.Time) Heartbeats {
 	var result qoderToolResult
 	if err := json.Unmarshal([]byte(row.ToolResult), &result); err != nil {
 		return nil
 	}
 
-	filePath := result.filePath()
-	if filePath == "" {
-		return nil
+	files := make([]qoderToolFile, 0, len(result.Results))
+	for _, file := range result.Results {
+		if file.Path != "" {
+			files = append(files, file)
+		}
+	}
+
+	if len(files) == 0 {
+		files = []qoderToolFile{{Path: result.parameterFilePath()}}
 	}
 
 	isWrite := !strings.HasPrefix(result.ToolCallName, "read")
-
-	var lineChanges *int
-	if isWrite {
-		lineChanges = heartbeat.PointerTo(result.lineChanges())
-	}
 
 	sessionID := result.SessionID
 	if sessionID == "" {
 		sessionID = row.SessionID
 	}
 
-	h := heartbeat.New(
-		lineChanges,
-		"",
-		heartbeat.AICodingCategory.String(),
-		nil,
-		filePath,
-		heartbeat.FileType,
-		nil,
-		false,
-		heartbeat.PointerTo(isWrite),
-		nil,
-		"",
-		nil,
-		nil,
-		"",
-		"",
-		false,
-		"",
-		"",
-		float64(timestamp.UnixMilli())/1000,
-		aiUserAgent(filePath, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
-	)
-	h.AISession = sessionID
+	var heartbeats Heartbeats
 
-	return &h
-}
-
-func (r qoderToolResult) filePath() string {
-	for _, file := range r.Results {
-		if file.Path != "" {
-			return file.Path
+	for _, file := range files {
+		if file.Path == "" {
+			continue
 		}
+
+		var lineChanges *int
+		if isWrite {
+			lineChanges = heartbeat.PointerTo(file.lineChanges())
+		}
+
+		h := heartbeat.New(
+			lineChanges,
+			"",
+			heartbeat.AICodingCategory.String(),
+			nil,
+			file.Path,
+			heartbeat.FileType,
+			nil,
+			false,
+			heartbeat.PointerTo(isWrite),
+			nil,
+			"",
+			nil,
+			nil,
+			"",
+			"",
+			false,
+			"",
+			"",
+			float64(timestamp.UnixMilli())/1000,
+			aiUserAgentWithModel(file.Path, g.UserAgents, g.FallbackUserAgent, "", ""),
+		)
+		h.AISession = sessionID
+		heartbeats = append(heartbeats, h)
 	}
 
+	return heartbeats
+}
+
+func (r qoderToolResult) parameterFilePath() string {
 	if r.Parameters.FilePath != "" {
 		return r.Parameters.FilePath
 	}
@@ -450,19 +501,13 @@ func (r qoderToolResult) filePath() string {
 	return r.Parameters.Path
 }
 
-func (r qoderToolResult) lineChanges() int {
-	for _, file := range r.Results {
-		diff := file.DiffInfo
-		if diff.Add == 0 && diff.Delete == 0 {
-			diff = file.LastDiffInfo
-		}
-
-		if diff.Add != 0 || diff.Delete != 0 {
-			return diff.Add - diff.Delete
-		}
+func (f qoderToolFile) lineChanges() int {
+	diff := f.DiffInfo
+	if diff.Add == 0 && diff.Delete == 0 {
+		diff = f.LastDiffInfo
 	}
 
-	return 0
+	return diff.Add - diff.Delete
 }
 
 func (Qoder) qoderPrompts(ctx context.Context, rows []qoderPromptRow) ([]qoderPrompt, error) {

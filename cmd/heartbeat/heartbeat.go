@@ -6,21 +6,21 @@ import (
 	"fmt"
 	"strings"
 
-	apicmd "github.com/wakatime/wakatime-cli/cmd/api"
-	"github.com/wakatime/wakatime-cli/cmd/handler"
-	offlinecmd "github.com/wakatime/wakatime-cli/cmd/offline"
-	"github.com/wakatime/wakatime-cli/pkg/ai"
-	"github.com/wakatime/wakatime-cli/pkg/api"
-	"github.com/wakatime/wakatime-cli/pkg/backoff"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/filter"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	_ "github.com/wakatime/wakatime-cli/pkg/lexer" // force to load all lexers
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
-	"github.com/wakatime/wakatime-cli/pkg/params"
-	"github.com/wakatime/wakatime-cli/pkg/ratelimit"
-	"github.com/wakatime/wakatime-cli/pkg/wakaerror"
+	apicmd "github.com/hackclub/hackatime-cli/cmd/api"
+	"github.com/hackclub/hackatime-cli/cmd/handler"
+	offlinecmd "github.com/hackclub/hackatime-cli/cmd/offline"
+	"github.com/hackclub/hackatime-cli/pkg/ai"
+	"github.com/hackclub/hackatime-cli/pkg/api"
+	"github.com/hackclub/hackatime-cli/pkg/backoff"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/filter"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	_ "github.com/hackclub/hackatime-cli/pkg/lexer" // force to load all lexers
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
+	"github.com/hackclub/hackatime-cli/pkg/params"
+	"github.com/hackclub/hackatime-cli/pkg/ratelimit"
+	"github.com/hackclub/hackatime-cli/pkg/wakaerror"
 
 	"github.com/spf13/viper"
 )
@@ -62,8 +62,9 @@ func Run(ctx context.Context, v *viper.Viper) (int, error) {
 			return errauth.ExitCode(), fmt.Errorf("sending heartbeat(s) failed: %w", errauth)
 		}
 
-		if errwaka, ok := err.(wakaerror.Error); ok {
-			return errwaka.ExitCode(), fmt.Errorf("sending heartbeat(s) failed: %w", errwaka)
+		var errwaka wakaerror.Error
+		if errors.As(err, &errwaka) {
+			return errwaka.ExitCode(), fmt.Errorf("sending heartbeat(s) failed: %w", err)
 		}
 
 		return exitcode.ErrGeneric, fmt.Errorf(
@@ -97,7 +98,7 @@ func SendHeartbeats(
 		return err
 	}
 
-	return sendPreparedHeartbeats(ctx, v, params, queueFilepath, heartbeats, true)
+	return sendPreparedHeartbeats(ctx, v, params, queueFilepath, heartbeats, true, loadParams)
 }
 
 func loadParams(
@@ -207,6 +208,7 @@ func initHandleOptions() []handler.Preprocessor {
 		handler.WithFormatting(),
 		handler.WithEntityModifier(),
 		handler.WithHeartbeatFiltering(),
+		handler.WithAIFiltering(),
 		handler.WithRemoteDetection(),
 		handler.WithAPIKeyReplacing(),
 		handler.WithFileStatsDetection(),
@@ -228,6 +230,7 @@ func applyAIParsing(
 ) ([]heartbeat.Heartbeat, error) {
 	handle := ai.WithAISync(ai.Config{
 		SyncDisabled: params.AI.SyncDisabled,
+		Exclude:      params.AI.Exclude,
 		Plugin:       params.API.Plugin,
 		Project:      params.Heartbeat.Project,
 		Sanitize:     params.Heartbeat.Sanitize,
@@ -262,6 +265,7 @@ func sendPreparedHeartbeats(
 	queueFilepath string,
 	heartbeats []heartbeat.Heartbeat,
 	withProjectConfig bool,
+	paramsLoader func(context.Context, *viper.Viper, params.FlagReadOrder) (params.Params, error),
 ) error {
 	logger := log.Extract(ctx)
 
@@ -295,9 +299,15 @@ func sendPreparedHeartbeats(
 
 		logger.Debugf("save %d extra heartbeat(s) to offline queue", len(extraHeartbeats))
 
+		// Copy the logger before starting the goroutine so offline log fields do
+		// not mutate the logger used concurrently by the foreground handler.
+		offlineLogger := *logger
+		offlineCtx := log.ToContext(ctx, &offlineLogger)
+
 		go func(done chan<- bool) {
-			if err := offlinecmd.SaveHeartbeatsWithParams(ctx, v, queueFilepath, extraHeartbeats, params); err != nil {
-				logger.Errorf("failed to save extra heartbeats to offline queue: %s", err)
+			err := offlinecmd.SaveHeartbeatsWithParams(offlineCtx, v, queueFilepath, extraHeartbeats, params)
+			if err != nil {
+				offlineLogger.Errorf("failed to save extra heartbeats to offline queue: %s", err)
 			}
 
 			done <- true
@@ -312,6 +322,10 @@ func sendPreparedHeartbeats(
 			logger.Errorf("failed to save extra heartbeats to offline queue: %s", err)
 		}
 
+		if savedOffline {
+			<-chOfflineSave
+		}
+
 		return fmt.Errorf("failed to initialize api client: %w", err)
 	}
 
@@ -321,7 +335,7 @@ func sendPreparedHeartbeats(
 	if withProjectConfig {
 		handle = handler.New(v, handler.Config{
 			Params:       params,
-			ParamsLoader: loadParams,
+			ParamsLoader: paramsLoader,
 			Opts:         opts,
 		})(sender)
 	} else {

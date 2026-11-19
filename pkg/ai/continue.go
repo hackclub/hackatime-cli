@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 // Continue contains params for detecting heartbeats from Continue transcripts.
@@ -298,17 +298,17 @@ func (g Continue) eventFromLine(line []byte, workspaces map[string]string) (cont
 func (g Continue) heartbeats(events []continueEvent) Heartbeats {
 	var heartbeats Heartbeats
 
+	tokenMatches := g.tokenMatches(events)
+
 	var (
 		currentSessionID string
 		currentWorkspace string
-		currentTokens    *continueEvent
 	)
 
-	for _, event := range events {
+	for i, event := range events {
 		switch event.Kind {
 		case continueEventTokens:
-			copy := event
-			currentTokens = &copy
+			continue
 		case continueEventChat:
 			if event.SessionID != "" {
 				currentSessionID = event.SessionID
@@ -318,29 +318,24 @@ func (g Continue) heartbeats(events []continueEvent) Heartbeats {
 				currentWorkspace = event.WorkspacePath
 			}
 
-			if event.Timestamp.Before(g.After) {
+			if !timestampAtOrAfterCutoff(event.Timestamp, ParserConfig(g).sessionAfter(currentSessionID)) {
 				continue
-			}
-
-			tokens := g.tokensForEvent(event, currentTokens)
-			if tokens != nil {
-				currentTokens = nil
 			}
 
 			heartbeats = append(heartbeats, g.newHeartbeat(
 				nil,
 				currentSessionID,
-				tokens,
+				tokenMatches[i],
 				appHeartbeatEntity(g.Name(), currentSessionID),
 				heartbeat.AppType,
 				heartbeat.PointerTo(false),
 				currentWorkspace,
-				float64(event.Timestamp.Unix()),
+				heartbeatTimestamp(event.Timestamp),
 				g.userAgent(event, appHeartbeatEntity(g.Name(), currentSessionID)),
 			))
 			heartbeats[len(heartbeats)-1].AIPromptLength = g.promptLength(event.Prompt)
 		case continueEventRead:
-			if event.Timestamp.Before(g.After) {
+			if !timestampAtOrAfterCutoff(event.Timestamp, ParserConfig(g).sessionAfter(currentSessionID)) {
 				continue
 			}
 
@@ -353,11 +348,11 @@ func (g Continue) heartbeats(events []continueEvent) Heartbeats {
 				heartbeat.FileType,
 				heartbeat.PointerTo(false),
 				"",
-				float64(event.Timestamp.Unix()),
+				heartbeatTimestamp(event.Timestamp),
 				g.userAgent(event, filePath),
 			))
 		case continueEventEdit:
-			if event.Timestamp.Before(g.After) {
+			if !timestampAtOrAfterCutoff(event.Timestamp, ParserConfig(g).sessionAfter(currentSessionID)) {
 				continue
 			}
 
@@ -375,13 +370,86 @@ func (g Continue) heartbeats(events []continueEvent) Heartbeats {
 				heartbeat.FileType,
 				heartbeat.PointerTo(true),
 				"",
-				float64(event.Timestamp.Unix()),
+				heartbeatTimestamp(event.Timestamp),
 				g.userAgent(event, filePath),
 			))
 		}
 	}
 
 	return heartbeats
+}
+
+func (g Continue) tokenMatches(events []continueEvent) map[int]*heartbeat.AITokens {
+	type candidate struct {
+		chatIndex  int
+		tokenIndex int
+		diff       time.Duration
+		tokens     heartbeat.AITokens
+	}
+
+	var tokenIndices []int
+
+	for i, event := range events {
+		if event.Kind == continueEventTokens {
+			tokenIndices = append(tokenIndices, i)
+		}
+	}
+
+	var candidates []candidate
+
+	for chatIndex, chat := range events {
+		if chat.Kind != continueEventChat {
+			continue
+		}
+
+		windowStart := chat.Timestamp.Add(-5 * time.Second)
+		start := sort.Search(len(tokenIndices), func(i int) bool {
+			return !events[tokenIndices[i]].Timestamp.Before(windowStart)
+		})
+
+		for _, tokenIndex := range tokenIndices[start:] {
+			token := events[tokenIndex]
+			if token.Timestamp.After(chat.Timestamp.Add(5 * time.Second)) {
+				break
+			}
+
+			matched := g.tokensForEvent(chat, &token)
+			if matched == nil {
+				continue
+			}
+
+			diff := chat.Timestamp.Sub(token.Timestamp)
+			if diff < 0 {
+				diff = -diff
+			}
+
+			candidates = append(candidates, candidate{
+				chatIndex:  chatIndex,
+				tokenIndex: tokenIndex,
+				diff:       diff,
+				tokens:     *matched,
+			})
+		}
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].diff < candidates[j].diff
+	})
+
+	matches := make(map[int]*heartbeat.AITokens)
+
+	usedTokens := make(map[int]bool)
+	for _, candidate := range candidates {
+		if matches[candidate.chatIndex] != nil || usedTokens[candidate.tokenIndex] {
+			continue
+		}
+
+		tokens := candidate.tokens
+		matches[candidate.chatIndex] = &tokens
+		usedTokens[candidate.tokenIndex] = true
+	}
+
+	return matches
 }
 
 func (Continue) tokensForEvent(event continueEvent, tokens *continueEvent) *heartbeat.AITokens {
@@ -412,14 +480,12 @@ func (Continue) tokensForEvent(event continueEvent, tokens *continueEvent) *hear
 }
 
 func (g Continue) userAgent(event continueEvent, entity string) string {
-	parser := aiPlugin(g, event.Model)
-
 	fallback := event.UserAgent
 	if fallback == "" {
 		fallback = g.FallbackUserAgent
 	}
 
-	return aiUserAgent(entity, g.UserAgents, fallback, parser)
+	return aiUserAgentWithModel(entity, g.UserAgents, fallback, event.Model, "")
 }
 
 func (Continue) promptLength(prompt string) int {

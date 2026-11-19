@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/project"
-	"github.com/wakatime/wakatime-cli/pkg/regex"
-	"github.com/wakatime/wakatime-cli/pkg/windows"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/project"
+	"github.com/hackclub/hackatime-cli/pkg/regex"
+	"github.com/hackclub/hackatime-cli/pkg/windows"
 
 	"github.com/gandarez/go-realpath"
 	"github.com/stretchr/testify/assert"
@@ -255,6 +255,102 @@ func TestWithDetection_OverrideTakesPrecedence_WithProjectPathOverride(t *testin
 			Entity:              entity,
 			ProjectOverride:     "override",
 			ProjectPathOverride: fp,
+		},
+	})
+	require.NoError(t, err)
+}
+
+func TestWithDetection_ProjectPathOverrideWakatimeProjectForOutOfTreeEntity(t *testing.T) {
+	ctx := t.Context()
+
+	tmpDir := t.TempDir()
+	tmpDir, err := realpath.Realpath(tmpDir)
+	require.NoError(t, err)
+
+	projectDir := filepath.Join(tmpDir, "Projects", "web", "hppmonitor-backend")
+	plansDir := filepath.Join(tmpDir, ".claude", "plans")
+
+	require.NoError(t, os.MkdirAll(projectDir, 0o755))
+	require.NoError(t, os.MkdirAll(plansDir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(projectDir, ".wakatime-project"),
+		[]byte("hppmonitor-backend.red\n"),
+		0o600,
+	))
+
+	entity := filepath.Join(plansDir, "make-a-resource-for-humble-kettle.md")
+	require.NoError(t, os.WriteFile(entity, []byte("plan"), 0o600))
+
+	if runtime.GOOS == "windows" {
+		entity = windows.FormatFilePath(entity)
+		projectDir = windows.FormatFilePath(projectDir)
+	}
+
+	opt := project.WithDetection(project.Config{})
+	handle := opt(func(_ context.Context, hh []heartbeat.Heartbeat) ([]heartbeat.Result, error) {
+		require.Len(t, hh, 1)
+		assert.Equal(t, heartbeat.PointerTo("hppmonitor-backend.red"), hh[0].Project)
+		assert.Equal(t, project.FormatProjectFolder(ctx, projectDir), hh[0].ProjectPath)
+
+		return nil, nil
+	})
+
+	_, err = handle(ctx, []heartbeat.Heartbeat{
+		{
+			EntityType:          heartbeat.FileType,
+			Entity:              entity,
+			ProjectPathOverride: projectDir,
+		},
+	})
+	require.NoError(t, err)
+}
+
+func TestWithDetection_EntityWakatimeProjectTakesPrecedenceOverProjectPathOverride(t *testing.T) {
+	ctx := t.Context()
+
+	tmpDir := t.TempDir()
+	tmpDir, err := realpath.Realpath(tmpDir)
+	require.NoError(t, err)
+
+	projectDir := filepath.Join(tmpDir, "Projects", "web", "hppmonitor-backend")
+	otherProjectDir := filepath.Join(tmpDir, "other-project")
+
+	require.NoError(t, os.MkdirAll(projectDir, 0o755))
+	require.NoError(t, os.MkdirAll(otherProjectDir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(projectDir, ".wakatime-project"),
+		[]byte("hppmonitor-backend.red\n"),
+		0o600,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(otherProjectDir, ".wakatime-project"),
+		[]byte("other-project.red\n"),
+		0o600,
+	))
+
+	entity := filepath.Join(otherProjectDir, "main.go")
+	require.NoError(t, os.WriteFile(entity, []byte("package main\n"), 0o600))
+
+	if runtime.GOOS == "windows" {
+		entity = windows.FormatFilePath(entity)
+		projectDir = windows.FormatFilePath(projectDir)
+		otherProjectDir = windows.FormatFilePath(otherProjectDir)
+	}
+
+	opt := project.WithDetection(project.Config{})
+	handle := opt(func(_ context.Context, hh []heartbeat.Heartbeat) ([]heartbeat.Result, error) {
+		require.Len(t, hh, 1)
+		assert.Equal(t, heartbeat.PointerTo("other-project.red"), hh[0].Project)
+		assert.Equal(t, project.FormatProjectFolder(ctx, otherProjectDir), hh[0].ProjectPath)
+
+		return nil, nil
+	})
+
+	_, err = handle(ctx, []heartbeat.Heartbeat{
+		{
+			EntityType:          heartbeat.FileType,
+			Entity:              entity,
+			ProjectPathOverride: projectDir,
 		},
 	})
 	require.NoError(t, err)

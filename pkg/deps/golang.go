@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/wakatime/wakatime-cli/pkg/file"
+	"github.com/hackclub/hackatime-cli/pkg/file"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -68,6 +68,8 @@ func (p *ParserGo) init() {
 
 func (p *ParserGo) processToken(token chroma.Token) {
 	switch token.Type {
+	case chroma.KeywordDeclaration:
+		p.State = StateGoUnknown
 	case chroma.KeywordNamespace:
 		p.processKeywordNamespace(token.Value)
 	case chroma.LiteralString:

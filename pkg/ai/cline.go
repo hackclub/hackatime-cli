@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
 )
 
 // Cline contains params for detecting heartbeats from Cline task logs.
@@ -27,9 +27,11 @@ type (
 	}
 
 	clineAPIRequest struct {
-		Request   string `json:"request"`
-		TokensIn  int64  `json:"tokensIn"`
-		TokensOut int64  `json:"tokensOut"`
+		Request     string `json:"request"`
+		TokensIn    int64  `json:"tokensIn"`
+		TokensOut   int64  `json:"tokensOut"`
+		CacheWrites int64  `json:"cacheWrites"`
+		CacheReads  int64  `json:"cacheReads"`
 	}
 
 	clineToolMessage struct {
@@ -43,6 +45,7 @@ type (
 		filePath    string
 		lineChanges int
 		isWrite     bool
+		isDeleted   bool
 		ok          bool
 	}
 )
@@ -159,7 +162,7 @@ func (g Cline) taskDirModifiedAfter(taskDir string) bool {
 
 	for _, path := range paths {
 		info, err := os.Stat(path)
-		if err == nil && !info.ModTime().Before(g.After) {
+		if err == nil && timestampAtOrAfterCutoff(info.ModTime(), g.After) {
 			return true
 		}
 	}
@@ -191,7 +194,7 @@ func (g Cline) parseTaskDir(taskDir string) (Heartbeats, error) {
 
 	for _, message := range messages {
 		timestamp := time.UnixMilli(message.Timestamp)
-		if timestamp.IsZero() || timestamp.Before(g.After) {
+		if timestamp.IsZero() || !timestampAtOrAfterCutoff(timestamp, ParserConfig(g).sessionAfter(sessionID)) {
 			continue
 		}
 
@@ -209,8 +212,9 @@ func (g Cline) parseTaskDir(taskDir string) (Heartbeats, error) {
 					cwd,
 					clineTaskText(request.Request),
 					heartbeat.AITokens{
-						CurrentInput:  request.TokensIn,
-						CurrentOutput: request.TokensOut,
+						CurrentInput:       max(request.TokensIn, 0) + max(request.CacheWrites, 0),
+						CurrentCachedInput: max(request.CacheReads, 0),
+						CurrentOutput:      max(request.TokensOut, 0),
 					},
 				))
 			}
@@ -220,7 +224,7 @@ func (g Cline) parseTaskDir(taskDir string) (Heartbeats, error) {
 			continue
 		}
 
-		if (message.Ask != nil && *message.Ask == "tool") || (message.Say != nil && *message.Say == "tool") {
+		if message.Say != nil && *message.Say == "tool" {
 			var tool clineToolMessage
 			if err := json.Unmarshal([]byte(*message.Text), &tool); err != nil {
 				continue
@@ -241,6 +245,7 @@ func (g Cline) parseTaskDir(taskDir string) (Heartbeats, error) {
 					fileHB.isWrite,
 				),
 			)
+			heartbeats[len(heartbeats)-1].IsUnsavedEntity = fileHB.isDeleted
 		}
 	}
 
@@ -276,8 +281,8 @@ func (g Cline) appHeartbeat(
 		false,
 		"",
 		cwd,
-		float64(timestamp.Unix()),
-		aiUserAgent(entity, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+		heartbeatTimestamp(timestamp),
+		aiUserAgentWithModel(entity, g.UserAgents, g.FallbackUserAgent, "", ""),
 	)
 	h.AIPromptLength = promptLength(taskText)
 
@@ -312,8 +317,8 @@ func (g Cline) fileHeartbeat(
 		false,
 		"",
 		"",
-		float64(timestamp.Unix()),
-		aiUserAgent(filePath, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+		heartbeatTimestamp(timestamp),
+		aiUserAgentWithModel(filePath, g.UserAgents, g.FallbackUserAgent, "", ""),
 	)
 }
 
@@ -365,13 +370,15 @@ func (Cline) toolHeartbeat(tool clineToolMessage, cwd string) clineToolHeartbeat
 			ok:       true,
 		}
 	case "fileDeleted":
-		if strings.TrimSpace(tool.Content) == "" {
-			return clineToolHeartbeat{}
+		lineChanges := 0
+		if tool.Content != "" {
+			lineChanges = -countStringLines(tool.Content)
 		}
 
 		return clineToolHeartbeat{
 			filePath:    filePath,
-			lineChanges: -countStringLines(tool.Content),
+			lineChanges: lineChanges,
+			isDeleted:   true,
 			isWrite:     true,
 			ok:          true,
 		}

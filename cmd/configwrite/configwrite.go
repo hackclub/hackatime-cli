@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 
 	"github.com/spf13/viper"
 )
@@ -21,10 +23,21 @@ type Params struct {
 
 // Run loads wakatime config file and call Write().
 func Run(ctx context.Context, v *viper.Viper) (int, error) {
-	w, err := ini.NewWriter(ctx, v, ini.FilePath)
+	w, err := ini.NewWriter(ctx, v, func(ctx context.Context, v *viper.Viper) (string, error) {
+		configFilepath, err := ini.FilePath(ctx, v)
+		if err != nil {
+			return "", err
+		}
+
+		if err := os.MkdirAll(filepath.Dir(configFilepath), 0700); err != nil {
+			return "", fmt.Errorf("failed creating config directory: %s", err)
+		}
+
+		return configFilepath, nil
+	})
 	if err != nil {
 		return exitcode.ErrConfigFileParse, fmt.Errorf(
-			"failed to parse config file: %s",
+			"failed to write to config file: %s",
 			err,
 		)
 	}

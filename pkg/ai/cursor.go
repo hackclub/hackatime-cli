@@ -1,4 +1,4 @@
-//go:build !freebsd && !openbsd && !netbsd && !dragonfly
+//go:build (!freebsd && !openbsd && !netbsd && !dragonfly) || (freebsd && (amd64 || arm64)) || (openbsd && (amd64 || arm64))
 
 package ai
 
@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 
 	// Register the pure-Go SQLite driver used to read Cursor state.vscdb files.
 	_ "modernc.org/sqlite"
@@ -24,17 +24,30 @@ import (
 // Cursor contains params for detecting heartbeats from Cursor transcripts.
 type Cursor ParserConfig
 
+const (
+	cursorRecentBubbleRowLimit = 5000
+	// Cursor can persist related edit rows shortly before a newer conversation
+	// row that advanced the shared AI parsing cutoff.
+	cursorCutoffBuffer = 4 * time.Second
+)
+
 type (
 	cursorTokenCount struct {
-		InputTokens  *int `json:"inputTokens"`
-		OutputTokens *int `json:"outputTokens"`
-		TotalTokens  *int `json:"totalTokens"`
+		InputTokens       *int `json:"inputTokens"`
+		OutputTokens      *int `json:"outputTokens"`
+		TotalTokens       *int `json:"totalTokens"`
+		InputTokensSnake  *int `json:"input_tokens"`
+		OutputTokensSnake *int `json:"output_tokens"`
+		TotalTokensSnake  *int `json:"total_tokens"`
 	}
 
 	cursorUsage struct {
-		InputTokens  *int `json:"input_tokens"`
-		OutputTokens *int `json:"output_tokens"`
-		TotalTokens  *int `json:"total_tokens"`
+		InputTokens       *int `json:"input_tokens"`
+		OutputTokens      *int `json:"output_tokens"`
+		TotalTokens       *int `json:"total_tokens"`
+		InputTokensCamel  *int `json:"inputTokens"`
+		OutputTokensCamel *int `json:"outputTokens"`
+		TotalTokensCamel  *int `json:"totalTokens"`
 	}
 
 	cursorToolFormerData struct {
@@ -55,6 +68,8 @@ type (
 
 	cursorLogLine struct {
 		BubbleID       string
+		BeforeContent  *string
+		AfterContent   *string
 		CreatedAt      time.Time             `json:"createdAt"`
 		Type           int                   `json:"type"`
 		Text           string                `json:"text"`
@@ -65,8 +80,10 @@ type (
 	}
 
 	cursorLogRow struct {
-		BubbleID string
-		Value    string
+		BubbleID      string
+		Value         string
+		BeforeContent *string
+		AfterContent  *string
 	}
 
 	cursorEditParams struct {
@@ -93,7 +110,11 @@ type (
 
 // Parse parses the Cursor SQLite state db for ai heartbeats.
 func (g Cursor) Parse(ctx context.Context) (Heartbeats, error) {
+	ctx, cancel := aiSQLiteContext(ctx)
+	defer cancel()
+
 	logger := log.Extract(ctx)
+	cutoff := g.bufferedCutoff()
 
 	dbPath, err := g.stateDBPath(ctx)
 	if err != nil {
@@ -104,18 +125,24 @@ func (g Cursor) Parse(ctx context.Context) (Heartbeats, error) {
 		return Heartbeats{}, nil
 	}
 
-	if !g.stateDBModifiedAfter(dbPath, g.After) {
+	if !g.stateDBModifiedAfter(dbPath, cutoff) {
 		return Heartbeats{}, nil
 	}
 
-	subscriptionPlan, err := g.querySubscriptionPlan(ctx, dbPath)
+	db, err := g.openDB(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close() // nolint:errcheck
+
+	subscriptionPlan, err := g.querySubscriptionPlan(ctx, db, dbPath)
 	if err != nil {
 		logger.Debugf("failed reading cursor subscription plan from %q: %s", dbPath, err)
 
 		subscriptionPlan = ""
 	}
 
-	rows, err := g.queryRows(ctx, dbPath)
+	rows, err := g.queryRows(ctx, db, dbPath)
 	if err != nil {
 		return nil, err
 	}
@@ -123,28 +150,42 @@ func (g Cursor) Parse(ctx context.Context) (Heartbeats, error) {
 	var heartbeats Heartbeats
 
 	bubbleCWDs := make(map[string]string)
+	bubbleModels := make(map[string]string)
 	bubbleTokens := make(map[string]heartbeat.AITokens)
 
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		var logLine cursorLogLine
 		if err := json.Unmarshal([]byte(row.Value), &logLine); err != nil {
 			continue
 		}
 
 		logLine.BubbleID = row.BubbleID
+		logLine.BeforeContent = row.BeforeContent
+		logLine.AfterContent = row.AfterContent
+
+		if model := g.modelName([]byte(row.Value)); model != "" && logLine.BubbleID != "" {
+			bubbleModels[logLine.BubbleID] = model
+		}
 
 		if cwd := g.projectPath(logLine); cwd != "" && logLine.BubbleID != "" {
 			bubbleCWDs[logLine.BubbleID] = cwd
 		}
 
 		tokens := g.cursorTokenCounts(logLine, bubbleTokens[logLine.BubbleID])
+		if g.checkpoint != nil {
+			cutoff = ParserConfig(g).sessionAfter(logLine.BubbleID)
+		}
 
-		if logLine.CreatedAt.IsZero() || logLine.CreatedAt.Before(g.After) {
+		if logLine.CreatedAt.IsZero() || !timestampAtOrAfterCutoff(logLine.CreatedAt, cutoff) {
 			bubbleTokens[logLine.BubbleID] = g.advanceTokens(tokens)
 			continue
 		}
 
-		parsed := g.cursorHeartbeats(logLine, bubbleCWDs[logLine.BubbleID], tokens)
+		parsed := g.cursorHeartbeats(logLine, bubbleCWDs[logLine.BubbleID], bubbleModels[logLine.BubbleID], tokens)
 		if len(parsed) == 0 {
 			bubbleTokens[logLine.BubbleID] = tokens
 			continue
@@ -158,18 +199,32 @@ func (g Cursor) Parse(ctx context.Context) (Heartbeats, error) {
 	return cursorApplySubscriptionPlan(heartbeats, subscriptionPlan), nil
 }
 
+func (g Cursor) bufferedCutoff() time.Time {
+	if g.After.IsZero() {
+		return time.Time{}
+	}
+
+	return g.After.Add(-cursorCutoffBuffer)
+}
+
 func (Cursor) cursorTokenCounts(line cursorLogLine, previous heartbeat.AITokens) heartbeat.AITokens {
-	if line.TokenCount != nil {
+	if line.TokenCount != nil && !line.TokenCount.isZero() {
 		current := previous
-		if line.TokenCount.InputTokens != nil {
-			current.CurrentInput = previous.LastInput + int64(*line.TokenCount.InputTokens)
+
+		if inputTokens := cursorFirstInt(line.TokenCount.InputTokens, line.TokenCount.InputTokensSnake); inputTokens != nil {
+			if *inputTokens != 0 {
+				current.CurrentInput = cumulativeTokenCount(current.LastInput, current.CurrentInput, *inputTokens)
+			}
 		}
 
+		outputTokens := cursorFirstInt(line.TokenCount.OutputTokens, line.TokenCount.OutputTokensSnake)
+
+		totalTokens := cursorFirstInt(line.TokenCount.TotalTokens, line.TokenCount.TotalTokensSnake)
 		switch {
-		case line.TokenCount.OutputTokens != nil:
-			current.CurrentOutput = previous.LastOutput + int64(*line.TokenCount.OutputTokens)
-		case line.TokenCount.TotalTokens != nil:
-			current.CurrentOutput = previous.LastOutput + int64(*line.TokenCount.TotalTokens)
+		case outputTokens != nil && *outputTokens != 0:
+			current.CurrentOutput = cumulativeTokenCount(current.LastOutput, current.CurrentOutput, *outputTokens)
+		case totalTokens != nil && *totalTokens != 0:
+			current.CurrentOutput = cumulativeTokenCount(current.LastOutput, current.CurrentOutput, *totalTokens)
 		}
 
 		return current
@@ -179,32 +234,88 @@ func (Cursor) cursorTokenCounts(line cursorLogLine, previous heartbeat.AITokens)
 		return previous
 	}
 
-	current := previous
-	if line.Usage.InputTokens != nil {
-		current.CurrentInput = int64(*line.Usage.InputTokens)
+	if line.Usage.isZero() {
+		return previous
 	}
 
+	current := previous
+
+	if inputTokens := cursorFirstInt(line.Usage.InputTokens, line.Usage.InputTokensCamel); inputTokens != nil {
+		if *inputTokens != 0 {
+			current.CurrentInput = int64(*inputTokens)
+		}
+	}
+
+	outputTokens := cursorFirstInt(line.Usage.OutputTokens, line.Usage.OutputTokensCamel)
+
+	totalTokens := cursorFirstInt(line.Usage.TotalTokens, line.Usage.TotalTokensCamel)
 	switch {
-	case line.Usage.OutputTokens != nil:
-		current.CurrentOutput = int64(*line.Usage.OutputTokens)
-	case line.Usage.TotalTokens != nil:
-		current.CurrentOutput = int64(*line.Usage.TotalTokens)
+	case outputTokens != nil && *outputTokens != 0:
+		current.CurrentOutput = int64(*outputTokens)
+	case totalTokens != nil && *totalTokens != 0:
+		current.CurrentOutput = int64(*totalTokens)
 	}
 
 	return current
 }
 
+func cumulativeTokenCount(last int64, current int64, value int) int64 {
+	next := int64(value)
+	if next < last || next < current {
+		return current
+	}
+
+	return next
+}
+
+func (c cursorTokenCount) isZero() bool {
+	return cursorAllIntsZero(
+		c.InputTokens,
+		c.OutputTokens,
+		c.TotalTokens,
+		c.InputTokensSnake,
+		c.OutputTokensSnake,
+		c.TotalTokensSnake,
+	)
+}
+
+func (u cursorUsage) isZero() bool {
+	return cursorAllIntsZero(
+		u.InputTokens,
+		u.OutputTokens,
+		u.TotalTokens,
+		u.InputTokensCamel,
+		u.OutputTokensCamel,
+		u.TotalTokensCamel,
+	)
+}
+
+func cursorAllIntsZero(values ...*int) bool {
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+
+		if *value != 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+func cursorFirstInt(values ...*int) *int {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+
+	return nil
+}
+
 func (Cursor) stateDBModifiedAfter(dbPath string, after time.Time) bool {
-	if after.IsZero() {
-		return true
-	}
-
-	info, err := os.Stat(dbPath)
-	if err != nil {
-		return false
-	}
-
-	return info.ModTime().After(after)
+	return aiSQLiteModifiedAfter(dbPath, after)
 }
 
 func (Cursor) stateDBPath(ctx context.Context) (string, error) {
@@ -229,29 +340,81 @@ func (Cursor) stateDBPath(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-func (Cursor) queryRows(ctx context.Context, dbPath string) ([]cursorLogRow, error) {
-	db, err := sql.Open("sqlite", dbPath)
+func (Cursor) openDB(dbPath string) (*sql.DB, error) {
+	db, err := openAISQLiteDB(context.Background(), dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed opening cursor sqlite db %q: %s", dbPath, err)
 	}
-	defer db.Close() // nolint:errcheck
 
+	// limit to a single connection, so the pure-Go sqlite driver only
+	// allocates memory for one connection
+	db.SetMaxOpenConns(1)
+
+	return db, nil
+}
+
+func (Cursor) queryRows(ctx context.Context, db *sql.DB, dbPath string) ([]cursorLogRow, error) {
 	rows, err := db.QueryContext(ctx, `
-SELECT key, CAST(value AS TEXT)
-FROM cursorDiskKV
-WHERE key LIKE 'bubbleId:%'
-  AND (
-    (
-      json_extract(CAST(value AS TEXT), '$.toolFormerData.status') = 'completed'
-      AND json_extract(
-        CAST(value AS TEXT),
-        '$.toolFormerData.name'
-      ) IN ('edit_file', 'edit_file_v2', 'read_file', 'read_file_v2')
-    )
-    OR json_extract(CAST(value AS TEXT), '$.text') IS NOT NULL
-  )
-ORDER BY json_extract(CAST(value AS TEXT), '$.createdAt') ASC;
-`)
+WITH recentCursorRows AS (
+	SELECT key, CAST(value AS TEXT) AS value
+	FROM cursorDiskKV
+	WHERE key LIKE 'bubbleId:%'
+	ORDER BY rowid DESC
+	LIMIT ?
+),
+filteredCursorRows AS (
+	SELECT
+		key,
+		value,
+		CASE
+			WHEN json_valid(json_extract(value, '$.toolFormerData.result'))
+			THEN json_extract(
+				json_extract(value, '$.toolFormerData.result'),
+				'$.beforeContentId'
+			)
+		END AS beforeContentId,
+		CASE
+			WHEN json_valid(json_extract(value, '$.toolFormerData.result'))
+			THEN json_extract(
+				json_extract(value, '$.toolFormerData.result'),
+				'$.afterContentId'
+			)
+		END AS afterContentId
+	FROM recentCursorRows
+	WHERE json_valid(value)
+	  AND (
+	    (
+	      json_extract(value, '$.toolFormerData.status') = 'completed'
+	      AND json_extract(
+	        value,
+	        '$.toolFormerData.name'
+	      ) IN ('edit_file', 'edit_file_v2', 'read_file', 'read_file_v2')
+	    )
+	    OR json_extract(value, '$.text') IS NOT NULL
+	    OR json_extract(value, '$.model') IS NOT NULL
+	    OR json_extract(value, '$.modelName') IS NOT NULL
+	    OR json_extract(value, '$.modelId') IS NOT NULL
+	    OR json_extract(value, '$.modelID') IS NOT NULL
+	    OR json_extract(value, '$.model_id') IS NOT NULL
+	    OR json_extract(value, '$.modelSlug') IS NOT NULL
+	    OR json_extract(value, '$.modelDetails') IS NOT NULL
+	    OR json_extract(value, '$.modelConfig') IS NOT NULL
+	    OR json_extract(value, '$.selectedModel') IS NOT NULL
+	    OR json_extract(value, '$.selectedChatModel') IS NOT NULL
+	    OR json_extract(value, '$.tokenCount') IS NOT NULL
+	    OR json_extract(value, '$.usage') IS NOT NULL
+	  )
+)
+SELECT
+	row.key,
+	row.value,
+	CAST(beforeContent.value AS TEXT),
+	CAST(afterContent.value AS TEXT)
+FROM filteredCursorRows AS row
+LEFT JOIN cursorDiskKV AS beforeContent ON beforeContent.key = row.beforeContentId
+LEFT JOIN cursorDiskKV AS afterContent ON afterContent.key = row.afterContentId
+ORDER BY json_extract(row.value, '$.createdAt') ASC;
+`, cursorRecentBubbleRowLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed querying cursor sqlite db %q: %s", dbPath, err)
 	}
@@ -261,11 +424,17 @@ ORDER BY json_extract(CAST(value AS TEXT), '$.createdAt') ASC;
 
 	for rows.Next() {
 		var (
-			key string
-			row string
+			key           string
+			row           string
+			beforeContent sql.NullString
+			afterContent  sql.NullString
 		)
-		if err := rows.Scan(&key, &row); err != nil {
+		if err := rows.Scan(&key, &row, &beforeContent, &afterContent); err != nil {
 			return nil, fmt.Errorf("failed scanning cursor sqlite row: %s", err)
+		}
+
+		if err := aiSQLiteRead(ctx, key, row, beforeContent.String, afterContent.String); err != nil {
+			return nil, err
 		}
 
 		row = strings.TrimSpace(row)
@@ -275,10 +444,19 @@ ORDER BY json_extract(CAST(value AS TEXT), '$.createdAt') ASC;
 				bubbleID = bubbleID[:idx]
 			}
 
-			results = append(results, cursorLogRow{
+			result := cursorLogRow{
 				BubbleID: bubbleID,
 				Value:    row,
-			})
+			}
+			if beforeContent.Valid {
+				result.BeforeContent = heartbeat.PointerTo(beforeContent.String)
+			}
+
+			if afterContent.Valid {
+				result.AfterContent = heartbeat.PointerTo(afterContent.String)
+			}
+
+			results = append(results, result)
 		}
 	}
 
@@ -289,16 +467,10 @@ ORDER BY json_extract(CAST(value AS TEXT), '$.createdAt') ASC;
 	return results, nil
 }
 
-func (Cursor) querySubscriptionPlan(ctx context.Context, dbPath string) (string, error) {
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return "", fmt.Errorf("failed opening cursor sqlite db %q: %s", dbPath, err)
-	}
-	defer db.Close() // nolint:errcheck
-
+func (Cursor) querySubscriptionPlan(ctx context.Context, db *sql.DB, dbPath string) (string, error) {
 	var tableName string
 
-	err = db.QueryRowContext(ctx, `
+	err := db.QueryRowContext(ctx, `
 SELECT name
 FROM sqlite_master
 WHERE type = 'table' AND name = 'ItemTable';
@@ -347,7 +519,7 @@ func cursorApplySubscriptionPlan(heartbeats Heartbeats, plan string) Heartbeats 
 	return heartbeats
 }
 
-func (g Cursor) cursorHeartbeats(logLine cursorLogLine, cwd string, tokens heartbeat.AITokens) Heartbeats {
+func (g Cursor) cursorHeartbeats(logLine cursorLogLine, cwd string, model string, tokens heartbeat.AITokens) Heartbeats {
 	var heartbeats Heartbeats
 
 	assignTokens := g.hasTokenDelta(tokens)
@@ -356,6 +528,7 @@ func (g Cursor) cursorHeartbeats(logLine cursorLogLine, cwd string, tokens heart
 	if heartbeat := g.cursorAppHeartbeat(
 		logLine,
 		cwd,
+		model,
 		logLine.BubbleID,
 		appTokens,
 	); heartbeat != nil {
@@ -370,6 +543,7 @@ func (g Cursor) cursorHeartbeats(logLine cursorLogLine, cwd string, tokens heart
 	fileTokens := g.tokensForFirstHeartbeat(assignTokens, tokens)
 	if heartbeat := g.cursorFileHeartbeat(
 		logLine,
+		model,
 		logLine.BubbleID,
 		fileTokens,
 	); heartbeat != nil {
@@ -382,6 +556,7 @@ func (g Cursor) cursorHeartbeats(logLine cursorLogLine, cwd string, tokens heart
 func (g Cursor) cursorAppHeartbeat(
 	logLine cursorLogLine,
 	cwd string,
+	model string,
 	sessionID string,
 	tokens *heartbeat.AITokens,
 ) *heartbeat.Heartbeat {
@@ -404,8 +579,8 @@ func (g Cursor) cursorAppHeartbeat(
 		heartbeat.AppType,
 		heartbeat.PointerTo(false),
 		cwd,
-		float64(logLine.CreatedAt.Unix()),
-		aiUserAgent(entity, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+		heartbeatTimestamp(logLine.CreatedAt),
+		g.userAgent(entity, model),
 	)
 	if logLine.Type == 1 {
 		h.AIPromptLength = promptLength(logLine.Text)
@@ -416,6 +591,7 @@ func (g Cursor) cursorAppHeartbeat(
 
 func (g Cursor) cursorFileHeartbeat(
 	logLine cursorLogLine,
+	model string,
 	sessionID string,
 	tokens *heartbeat.AITokens,
 ) *heartbeat.Heartbeat {
@@ -432,6 +608,10 @@ func (g Cursor) cursorFileHeartbeat(
 		}
 
 		lineChanges := g.lineChanges(params.StreamingContent)
+		if params.StreamingContent == "" {
+			lineChanges = g.lineChangesFromContent(logLine.BeforeContent, logLine.AfterContent)
+		}
+
 		h := g.newHeartbeat(
 			heartbeat.PointerTo(lineChanges),
 			sessionID,
@@ -440,8 +620,8 @@ func (g Cursor) cursorFileHeartbeat(
 			heartbeat.FileType,
 			heartbeat.PointerTo(true),
 			"",
-			float64(logLine.CreatedAt.Unix()),
-			aiUserAgent(filePath, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+			heartbeatTimestamp(logLine.CreatedAt),
+			g.userAgent(filePath, model),
 		)
 
 		return &h
@@ -477,8 +657,8 @@ func (g Cursor) cursorFileHeartbeat(
 			heartbeat.FileType,
 			heartbeat.PointerTo(true),
 			"",
-			float64(logLine.CreatedAt.Unix()),
-			aiUserAgent(filePath, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+			heartbeatTimestamp(logLine.CreatedAt),
+			g.userAgent(filePath, model),
 		)
 
 		return &h
@@ -524,14 +704,125 @@ func (g Cursor) cursorFileHeartbeat(
 			heartbeat.FileType,
 			heartbeat.PointerTo(false),
 			"",
-			float64(logLine.CreatedAt.Unix()),
-			aiUserAgent(filePath, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+			heartbeatTimestamp(logLine.CreatedAt),
+			g.userAgent(filePath, model),
 		)
 
 		return &h
 	default:
 		return nil
 	}
+}
+
+func (g Cursor) userAgent(entity string, model string) string {
+	return aiUserAgentWithModelTokenAndEditor(
+		entity, g.UserAgents, g.FallbackUserAgent, cursorModelUserAgentToken(model), aiPlugin(g, ""),
+	)
+}
+
+func cursorUserAgentWithModel(userAgent string, modelToken string) string {
+	return userAgentWithPrependedAgent(userAgent, modelToken)
+}
+
+func cursorModelUserAgentToken(model string) string {
+	return aiAgentUserAgentToken(model)
+}
+
+func (Cursor) modelName(raw []byte) string {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return ""
+	}
+
+	return cursorModelNameFromValue(value)
+}
+
+func cursorModelNameFromValue(value any) string {
+	obj, ok := value.(map[string]any)
+	if !ok {
+		return cursorCleanModelName(value)
+	}
+
+	for _, key := range []string{
+		"modelName",
+		"model_name",
+		"modelId",
+		"modelID",
+		"model_id",
+		"modelSlug",
+		"model",
+		"selectedModel",
+		"selectedChatModel",
+	} {
+		if model := cursorCleanModelName(obj[key]); model != "" {
+			return model
+		}
+	}
+
+	for _, key := range []string{
+		"modelDetails",
+		"modelConfig",
+		"modelConfiguration",
+		"modelInfo",
+		"selectedModel",
+		"selectedChatModel",
+	} {
+		if model := cursorCleanModelName(obj[key]); model != "" {
+			return model
+		}
+
+		if model := cursorModelNameFromValue(obj[key]); model != "" {
+			return model
+		}
+	}
+
+	for key, nested := range obj {
+		if !strings.Contains(strings.ToLower(key), "model") {
+			continue
+		}
+
+		if model := cursorCleanModelName(nested); model != "" {
+			return model
+		}
+
+		if model := cursorModelNameFromValue(nested); model != "" {
+			return model
+		}
+	}
+
+	return ""
+}
+
+func cursorCleanModelName(value any) string {
+	switch v := value.(type) {
+	case string:
+		model := strings.Join(strings.Fields(strings.TrimSpace(v)), "-")
+
+		model = strings.Trim(model, "/")
+		if len(model) > 128 {
+			return ""
+		}
+
+		return model
+	case map[string]any:
+		for _, key := range []string{
+			"name",
+			"id",
+			"modelName",
+			"model_name",
+			"modelId",
+			"modelID",
+			"model_id",
+			"slug",
+			"value",
+		} {
+			if model := cursorCleanModelName(v[key]); model != "" {
+				return model
+			}
+		}
+	}
+
+	return ""
 }
 
 func (Cursor) tokenDelta(tokens heartbeat.AITokens) (int64, int64) {
@@ -729,6 +1020,22 @@ func (g Cursor) lineChanges(content string) int {
 	}
 
 	return lineChanges
+}
+
+func (Cursor) lineChangesFromContent(beforeContent *string, afterContent *string) int {
+	if beforeContent == nil || afterContent == nil {
+		return 0
+	}
+
+	lineCount := func(content string) int {
+		if content == "" {
+			return 0
+		}
+
+		return countStringLines(content)
+	}
+
+	return lineCount(*afterContent) - lineCount(*beforeContent)
 }
 
 func (Cursor) looksLikeUnifiedDiff(content string) bool {

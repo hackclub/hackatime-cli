@@ -13,18 +13,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/api"
-	"github.com/wakatime/wakatime-cli/pkg/apikey"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	inipkg "github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/log/setup"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
-	"github.com/wakatime/wakatime-cli/pkg/output"
-	paramspkg "github.com/wakatime/wakatime-cli/pkg/params"
-	"github.com/wakatime/wakatime-cli/pkg/project"
-	"github.com/wakatime/wakatime-cli/pkg/regex"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
+	"github.com/hackclub/hackatime-cli/pkg/api"
+	"github.com/hackclub/hackatime-cli/pkg/apikey"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	inipkg "github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/log/setup"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
+	"github.com/hackclub/hackatime-cli/pkg/output"
+	paramspkg "github.com/hackclub/hackatime-cli/pkg/params"
+	"github.com/hackclub/hackatime-cli/pkg/project"
+	"github.com/hackclub/hackatime-cli/pkg/regex"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 
 	viperini "github.com/go-viper/encoding/ini"
 	"github.com/spf13/viper"
@@ -2468,7 +2468,7 @@ func TestLoadAPIParams_BackoffAt(t *testing.T) {
 		BackoffAt:      backoffAt,
 		BackoffRetries: 3,
 		Key:            "00000000-0000-4000-8000-000000000000",
-		URL:            "https://api.wakatime.com/api/v1",
+		URL:            "https://hackatime.hackclub.com/api/hackatime/v1",
 		Hostname:       "my-computer",
 	}, params)
 }
@@ -3235,7 +3235,7 @@ func TestParamsString_IncludesAIParams(t *testing.T) {
 
 	assert.Equal(
 		t,
-		"disabled: true",
+		"disabled: true, exclude: '[]'",
 		params.String(),
 	)
 }
@@ -3452,4 +3452,28 @@ func TestLoadAPIParams_APIURLs_NormalizesURL(t *testing.T) {
 	}
 
 	assert.Equal(t, expected, params.URLPatterns)
+}
+
+func TestLoadAIParams_Exclude(t *testing.T) {
+	v := vipertools.MustNew()
+	v.Set("settings.exclude_ai", "/nautilus/\n/overnight-codex/")
+	v.Set("exclude-ai", "/my-folder/")
+
+	params, err := paramspkg.LoadAIParams(t.Context(), v, paramspkg.FlagReadOrderFlagPrecedence)
+	require.NoError(t, err)
+
+	assert.False(t, params.SyncDisabled)
+	require.Len(t, params.Exclude, 3)
+	assert.Equal(t, "(?i)/nautilus/", params.Exclude[1].String())
+}
+
+func TestLoadAIParams_SyncDisabled(t *testing.T) {
+	v := vipertools.MustNew()
+	v.Set("settings.sync_ai_disabled", true)
+
+	params, err := paramspkg.LoadAIParams(t.Context(), v, paramspkg.FlagReadOrderFlagPrecedence)
+	require.NoError(t, err)
+
+	assert.True(t, params.SyncDisabled)
+	assert.Empty(t, params.Exclude)
 }

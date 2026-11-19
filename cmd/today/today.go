@@ -2,14 +2,15 @@ package today
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	cmdapi "github.com/wakatime/wakatime-cli/cmd/api"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/params"
-	"github.com/wakatime/wakatime-cli/pkg/summary"
-	"github.com/wakatime/wakatime-cli/pkg/wakaerror"
+	cmdapi "github.com/hackclub/hackatime-cli/cmd/api"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/params"
+	"github.com/hackclub/hackatime-cli/pkg/summary"
+	"github.com/hackclub/hackatime-cli/pkg/wakaerror"
 
 	"github.com/spf13/viper"
 )
@@ -18,7 +19,8 @@ import (
 func Run(ctx context.Context, v *viper.Viper) (int, error) {
 	output, err := Today(ctx, v)
 	if err != nil {
-		if errwaka, ok := err.(wakaerror.Error); ok {
+		var errwaka wakaerror.Error
+		if errors.As(err, &errwaka) {
 			return errwaka.ExitCode(), fmt.Errorf("today fetch failed: %s", errwaka.Message())
 		}
 

@@ -2,9 +2,10 @@ package file_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/file"
+	"github.com/hackclub/hackatime-cli/pkg/file"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,6 +134,13 @@ func TestReadLines_NonFile(t *testing.T) {
 	assert.ErrorContains(t, err, "failed to open file \"non-file\"")
 }
 
+func TestReadLines_EmptyPath(t *testing.T) {
+	lines, err := file.ReadLines(t.Context(), "", 10)
+
+	assert.Nil(t, lines)
+	assert.EqualError(t, err, "filepath cannot be empty")
+}
+
 func TestCountLines(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -154,6 +162,21 @@ func TestCountLines(t *testing.T) {
 	assert.Equal(t, lines, 2000)
 }
 
+func TestCountLines_LongLine(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "")
+	require.NoError(t, err)
+
+	defer f.Close()
+
+	_, err = f.WriteString(strings.Repeat("x", file.MaxFileSizeSupported))
+	require.NoError(t, err)
+
+	lines, err := file.CountLines(t.Context(), f.Name())
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, lines)
+}
+
 func TestReadLines_EmptyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -173,4 +196,11 @@ func TestCountLines_NonFile(t *testing.T) {
 
 	assert.Empty(t, lines)
 	assert.ErrorContains(t, err, "failed to open file \"non-file\"")
+}
+
+func TestCountLines_EmptyPath(t *testing.T) {
+	lines, err := file.CountLines(t.Context(), "")
+
+	assert.Empty(t, lines)
+	assert.EqualError(t, err, "filepath cannot be empty")
 }

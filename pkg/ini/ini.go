@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 
 	"github.com/juju/mutex"
 	"github.com/mitchellh/go-homedir"
@@ -70,11 +70,17 @@ func NewWriter(
 
 	logger := log.Extract(ctx)
 
+	lock, err := acquireConfigLock(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire config mutex: %w", err)
+	}
+	defer lock.Release()
+
 	// check if file exists
 	if !fileExists(configFilepath) {
 		logger.Debugf("it will create missing config file %q", configFilepath)
 
-		f, err := os.Create(configFilepath) // nolint:gosec
+		f, err := os.OpenFile(configFilepath, os.O_CREATE|os.O_WRONLY, 0o600) // nolint:gosec
 		if err != nil {
 			return nil, fmt.Errorf("failed creating file: %s", err)
 		}
@@ -106,22 +112,10 @@ func (w *WriterConfig) Write(ctx context.Context, section string, keyValue map[s
 		return errors.New("got undefined wakatime config file instance")
 	}
 
-	for key, value := range keyValue {
-		// prevent writing null characters
-		key = strings.ReplaceAll(key, "\x00", "")
-		value = strings.ReplaceAll(value, "\x00", "")
-
-		w.File.Section(section).Key(key).SetValue(value)
-	}
-
-	releaser, err := mutex.Acquire(mutex.Spec{
-		Name:    "wakatime-cli-config-mutex",
-		Delay:   time.Millisecond,
-		Timeout: defaultTimeout,
-		Clock:   &mutexClock{delay: time.Millisecond},
-	})
+	releaser, err := acquireConfigLock(ctx)
 	if err != nil {
 		logger.Debugf("failed to acquire mutex: %s", err)
+		return fmt.Errorf("failed to acquire config mutex: %w", err)
 	}
 
 	defer func() {
@@ -130,11 +124,39 @@ func (w *WriterConfig) Write(ctx context.Context, section string, keyValue map[s
 		}
 	}()
 
+	latest, err := ini.LoadSources(ini.LoadOptions{
+		AllowPythonMultilineValues: true,
+		SkipUnrecognizableLines:    true,
+	}, w.ConfigFilepath)
+	if err != nil {
+		return fmt.Errorf("error saving wakatime config: failed reloading config: %w", err)
+	}
+
+	w.File = latest
+
+	for key, value := range keyValue {
+		// prevent writing null characters
+		key = strings.ReplaceAll(key, "\x00", "")
+		value = strings.ReplaceAll(value, "\x00", "")
+
+		w.File.Section(section).Key(key).SetValue(value)
+	}
+
 	if err := w.File.SaveTo(w.ConfigFilepath); err != nil {
 		return fmt.Errorf("error saving wakatime config: %s", err)
 	}
 
 	return nil
+}
+
+func acquireConfigLock(ctx context.Context) (mutex.Releaser, error) {
+	return mutex.Acquire(mutex.Spec{
+		Name:    "wakatime-cli-config-mutex",
+		Delay:   time.Millisecond,
+		Timeout: defaultTimeout,
+		Cancel:  ctx.Done(),
+		Clock:   &mutexClock{},
+	})
 }
 
 // ReadInConfig reads wakatime config file in memory.
@@ -214,17 +236,32 @@ func FilePath(ctx context.Context, v *viper.Viper) (string, error) {
 		return p, nil
 	}
 
-	home, _, err := WakaHomeDir(ctx)
+	home, homeType, err := WakaHomeDir(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to get user's home directory: %s", err)
 	}
 
-	return filepath.Join(home, defaultFile), nil
+	legacy := filepath.Join(home, defaultFile)
+	if homeType == WakaHomeTypeEnvVar {
+		return legacy, nil
+	}
+
+	// Only a missing legacy file permits fallback; keep empty files and read errors authoritative.
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		return legacy, nil
+	}
+
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if !filepath.IsAbs(configHome) {
+		configHome = filepath.Join(home, ".config")
+	}
+
+	return filepath.Join(configHome, "wakatime", "wakatime.cfg"), nil
 }
 
 // ImportFilePath returns the path for custom wakatime config file.
 // It's used to keep the api key out ofthe home folder, and usually it's to avoid backing up sensitive wakatime config file.
-// https://github.com/wakatime/wakatime-cli/issues/464
+// https://github.com/hackclub/hackatime-cli/issues/464
 func ImportFilePath(_ context.Context, v *viper.Viper) (string, error) {
 	configFilepath := vipertools.GetString(v, "settings.import_cfg")
 	if configFilepath != "" {
@@ -325,12 +362,10 @@ func WakaResourcesDir(ctx context.Context) (string, error) {
 }
 
 // mutexClock is used to implement mutex.Clock interface.
-type mutexClock struct {
-	delay time.Duration
-}
+type mutexClock struct{}
 
-func (mc *mutexClock) After(time.Duration) <-chan time.Time {
-	return time.After(mc.delay)
+func (*mutexClock) After(d time.Duration) <-chan time.Time {
+	return time.After(d)
 }
 
 func (*mutexClock) Now() time.Time {

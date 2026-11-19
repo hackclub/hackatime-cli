@@ -1,4 +1,4 @@
-//go:build !freebsd && !openbsd && !netbsd && !dragonfly
+//go:build (!freebsd && !openbsd && !netbsd && !dragonfly) || (freebsd && (amd64 || arm64)) || (openbsd && (amd64 || arm64))
 
 package ai
 
@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
 
 	// Register the pure-Go SQLite driver used to read VS Code state.vscdb files.
 	_ "modernc.org/sqlite"
@@ -85,6 +85,9 @@ const codyStorageKey = "sourcegraph.cody-ai"
 
 // Parse parses Cody chat history from VS Code global storage.
 func (g Cody) Parse(ctx context.Context) (Heartbeats, error) {
+	ctx, cancel := aiSQLiteContext(ctx)
+	defer cancel()
+
 	dbPaths, err := g.stateDBPaths(ctx)
 	if err != nil {
 		return nil, err
@@ -139,20 +142,11 @@ func (Cody) stateDBPaths(ctx context.Context) ([]string, error) {
 }
 
 func (Cody) stateDBModifiedAfter(dbPath string, after time.Time) bool {
-	if after.IsZero() {
-		return true
-	}
-
-	info, err := os.Stat(dbPath)
-	if err != nil {
-		return false
-	}
-
-	return info.ModTime().After(after)
+	return aiSQLiteModifiedAfter(dbPath, after)
 }
 
 func (Cody) queryStorage(ctx context.Context, dbPath string) (string, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := openAISQLiteDB(ctx, dbPath)
 	if err != nil {
 		return "", fmt.Errorf("failed opening cody sqlite db %q: %s", dbPath, err)
 	}
@@ -174,6 +168,10 @@ LIMIT 1;
 		return "", fmt.Errorf("failed querying cody sqlite db %q: %s", dbPath, err)
 	}
 
+	if err := aiSQLiteRead(ctx, value); err != nil {
+		return "", err
+	}
+
 	return strings.TrimSpace(value), nil
 }
 
@@ -192,7 +190,8 @@ func (g Cody) heartbeatsFromStorage(value string) Heartbeats {
 	for _, userHistory := range history {
 		for chatID, transcript := range userHistory.Chat {
 			transcriptID := firstNonEmptyString(transcript.ID, chatID)
-			if transcript.LastInteractionTimestamp.IsZero() || transcript.LastInteractionTimestamp.Before(g.After) {
+			if transcript.LastInteractionTimestamp.IsZero() ||
+				!timestampAtOrAfterCutoff(transcript.LastInteractionTimestamp, ParserConfig(g).sessionAfter(transcriptID)) {
 				continue
 			}
 
@@ -266,8 +265,8 @@ func (g Cody) interactionHeartbeats(
 		heartbeat.AppType,
 		heartbeat.PointerTo(false),
 		"",
-		float64(timestamp.Unix()),
-		aiUserAgent(entity, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, model)),
+		heartbeatTimestamp(timestamp),
+		aiUserAgentWithModel(entity, g.UserAgents, g.FallbackUserAgent, model, ""),
 	)
 	appHeartbeat.AIPromptLength = promptLength(interaction.HumanMessage.Text)
 	heartbeats = append(heartbeats, appHeartbeat)
@@ -347,8 +346,8 @@ func (g Cody) fileHeartbeat(
 		heartbeat.FileType,
 		heartbeat.PointerTo(isWrite),
 		"",
-		float64(timestamp.Unix()),
-		aiUserAgent(filePath, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, model)),
+		heartbeatTimestamp(timestamp),
+		aiUserAgentWithModel(filePath, g.UserAgents, g.FallbackUserAgent, model, ""),
 	)
 
 	return &h
@@ -386,7 +385,7 @@ func (item codyContextItem) filePath() string {
 		}
 	}
 
-	if len(rawPath) >= 3 && rawPath[0] == '/' && rawPath[2] == ':' {
+	if len(rawPath) >= 3 && (rawPath[0] == '/' || rawPath[0] == '\\') && rawPath[2] == ':' {
 		rawPath = rawPath[1:]
 	}
 

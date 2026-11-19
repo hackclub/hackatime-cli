@@ -2,12 +2,11 @@ package api
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"net/http"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 const (
@@ -84,7 +83,6 @@ mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
 emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 -----END CERTIFICATE-----
 `
-	serverName = "api.wakatime.com"
 )
 
 // NewTransport initializes a new http.Transport.
@@ -97,19 +95,6 @@ func NewTransport() *http.Transport {
 		Proxy:               nil,
 		TLSHandshakeTimeout: DefaultTimeoutSecs * time.Second,
 	}
-}
-
-// NewTransportWithHostVerificationDisabled initializes a new http.Transport with disabled host verification.
-func NewTransportWithHostVerificationDisabled(ctx context.Context) *http.Transport {
-	t := NewTransport()
-
-	t.TLSClientConfig = &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		RootCAs:    CACerts(ctx),
-		ServerName: serverName,
-	}
-
-	return t
 }
 
 // LazyCreateNewTransport uses the client's Transport if exists, or creates a new one.

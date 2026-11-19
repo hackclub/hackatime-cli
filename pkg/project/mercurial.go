@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wakatime/wakatime-cli/pkg/file"
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/file"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 // Mercurial contains mercurial data.
@@ -46,7 +46,7 @@ func (m Mercurial) Detect(ctx context.Context) (Result, bool, error) {
 	return Result{
 		Project: project,
 		Branch:  branch,
-		Folder:  filepath.Dir(filepath.Dir(hgDirectory)),
+		Folder:  filepath.Dir(hgDirectory),
 	}, true, nil
 }
 

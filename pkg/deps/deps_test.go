@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/deps"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/regex"
+	"github.com/hackclub/hackatime-cli/pkg/deps"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/regex"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +21,7 @@ func TestWithDetection(t *testing.T) {
 			{
 				Dependencies: []string{
 					"os",
-					"github.com/wakatime/wakatime-cli/pkg/heartbeat",
+					"github.com/hackclub/hackatime-cli/pkg/heartbeat",
 				},
 				Entity:     "testdata/golang_minimal.go",
 				EntityType: heartbeat.FileType,
@@ -87,7 +87,7 @@ func TestWithDetection_LocalFile(t *testing.T) {
 			{
 				Dependencies: []string{
 					"os",
-					"github.com/wakatime/wakatime-cli/pkg/heartbeat",
+					"github.com/hackclub/hackatime-cli/pkg/heartbeat",
 				},
 				Entity:     "testdata/golang.go",
 				EntityType: heartbeat.FileType,
@@ -149,6 +149,53 @@ func TestWithDetection_NonFileType(t *testing.T) {
 	}, result)
 }
 
+func TestWithDetection_SkipsUnsupportedHeartbeats(t *testing.T) {
+	opt := deps.WithDetection(deps.Config{})
+
+	h := opt(func(_ context.Context, hh []heartbeat.Heartbeat) ([]heartbeat.Result, error) {
+		assert.Equal(t, []heartbeat.Heartbeat{
+			{
+				Entity:          "testdata/golang.go",
+				EntityType:      heartbeat.FileType,
+				IsUnsavedEntity: true,
+				Language:        heartbeat.PointerTo("Go"),
+			},
+			{
+				Entity:     "testdata/golang.go",
+				EntityType: heartbeat.FileType,
+			},
+			{
+				Entity:     "testdata/golang.go",
+				EntityType: heartbeat.FileType,
+				Language:   heartbeat.PointerTo("NotALanguage"),
+			},
+		}, hh)
+
+		return []heartbeat.Result{{Status: 201}}, nil
+	})
+
+	result, err := h(t.Context(), []heartbeat.Heartbeat{
+		{
+			Entity:          "testdata/golang.go",
+			EntityType:      heartbeat.FileType,
+			IsUnsavedEntity: true,
+			Language:        heartbeat.PointerTo("Go"),
+		},
+		{
+			Entity:     "testdata/golang.go",
+			EntityType: heartbeat.FileType,
+		},
+		{
+			Entity:     "testdata/golang.go",
+			EntityType: heartbeat.FileType,
+			Language:   heartbeat.PointerTo("NotALanguage"),
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, []heartbeat.Result{{Status: 201}}, result)
+}
+
 func TestDetect(t *testing.T) {
 	ctx := t.Context()
 
@@ -182,7 +229,7 @@ func TestDetect(t *testing.T) {
 			Language: heartbeat.LanguageGo,
 			Dependencies: []string{
 				"os",
-				"github.com/wakatime/wakatime-cli/pkg/heartbeat",
+				"github.com/hackclub/hackatime-cli/pkg/heartbeat",
 			},
 		},
 		"haskell": {
@@ -198,7 +245,7 @@ func TestDetect(t *testing.T) {
 		"html": {
 			Filepath:     "testdata/html_minimal.html",
 			Language:     heartbeat.LanguageHTML,
-			Dependencies: []string{`"https://cdn.wakatime.com/app.min.js"`},
+			Dependencies: []string{`https://cdn.wakatime.com/app.min.js`},
 		},
 		"java": {
 			Filepath:     "testdata/java_minimal.java",

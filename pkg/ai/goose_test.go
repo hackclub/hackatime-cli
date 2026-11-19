@@ -1,4 +1,4 @@
-//go:build !freebsd && !openbsd && !netbsd && !dragonfly
+//go:build (!freebsd && !openbsd && !netbsd && !dragonfly) || (freebsd && (amd64 || arm64)) || (openbsd && (amd64 || arm64))
 
 package ai_test
 
@@ -7,14 +7,13 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/hackclub/hackatime-cli/pkg/ai"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wakatime/wakatime-cli/pkg/ai"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
 
 	_ "modernc.org/sqlite"
 )
@@ -50,8 +49,7 @@ func TestGooseParse(t *testing.T) {
 	assert.Zero(t, got[0].AIInputTokens)
 	assert.Zero(t, got[0].AIOutputTokens)
 	assert.Equal(t, float64(time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC).Unix()), got[0].Time)
-	assert.Contains(t, got[0].UserAgent, "Goose/anthropic")
-	assert.True(t, strings.Index(got[0].UserAgent, "Goose/anthropic") < strings.Index(got[0].UserAgent, "plugin/0.0.1"))
+	assert.Equal(t, "plugin/0.0.1", got[0].UserAgent)
 }
 
 func TestGooseParse_PlainTokenColumns(t *testing.T) {
@@ -106,9 +104,10 @@ func TestGooseParse_ActualSQLiteSchema(t *testing.T) {
 	assert.Equal(t, "/workspace/goose", got[0].ProjectPathOverride)
 	assert.Equal(t, len([]rune("Fix the Goose parser using the real schema")), got[0].AIPromptLength)
 	assert.EqualValues(t, 13, got[0].AIInputTokens)
+	assert.EqualValues(t, 5, got[0].AICachedInputTokens)
 	assert.EqualValues(t, 8, got[0].AIOutputTokens)
 	assert.Equal(t, float64(time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC).Unix()), got[0].Time)
-	assert.Contains(t, got[0].UserAgent, "Goose")
+	assert.Contains(t, got[0].UserAgent, "gpt/4o")
 }
 
 func TestGooseParse_MissingOptionalColumnsKeepsParsing(t *testing.T) {
@@ -355,6 +354,10 @@ CREATE TABLE sessions (
 	accumulated_total_tokens INTEGER,
 	accumulated_input_tokens INTEGER,
 	accumulated_output_tokens INTEGER,
+	cache_read_tokens INTEGER,
+	cache_write_tokens INTEGER,
+	accumulated_cache_read_tokens INTEGER,
+	accumulated_cache_write_tokens INTEGER,
 	schedule_id TEXT,
 	recipe_json TEXT,
 	user_recipe_values_json TEXT,
@@ -438,6 +441,10 @@ INSERT INTO sessions (
 	accumulated_total_tokens,
 	accumulated_input_tokens,
 	accumulated_output_tokens,
+	cache_read_tokens,
+	cache_write_tokens,
+	accumulated_cache_read_tokens,
+	accumulated_cache_write_tokens,
 	provider_name,
 	model_config_json,
 	goose_mode
@@ -456,6 +463,10 @@ INSERT INTO sessions (
 		150,
 		100,
 		50,
+		2,
+		1,
+		20,
+		10,
 		'openai',
 		'{"model_name":"gpt-4o"}',
 		'auto'
@@ -468,12 +479,16 @@ INSERT INTO sessions (
 		'/workspace/goose',
 		'2026-04-20 12:00:00',
 		'{"enabled_extensions.v0":{"extensions":[]}}',
-		21,
-		13,
+		26,
+		18,
 		8,
 		210,
 		130,
 		80,
+		5,
+		3,
+		50,
+		30,
 		'openai',
 		'{"model_name":"gpt-4o"}',
 		'auto'

@@ -8,9 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 
+	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -141,8 +142,13 @@ func TestReadInConfig_NullBytes(t *testing.T) {
 }
 
 func TestFilePath(t *testing.T) {
-	home, err := os.UserHomeDir()
-	require.NoError(t, err)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	homedir.Reset()
+	t.Cleanup(homedir.Reset)
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".wakatime.cfg"), nil, 0600))
 
 	ctx := t.Context()
 
@@ -187,6 +193,88 @@ func TestFilePath(t *testing.T) {
 	}
 }
 
+func TestFilePath_XDG(t *testing.T) {
+	xdgHome := t.TempDir()
+	tests := map[string]struct {
+		ConfigHome string
+		Existing   bool
+		Expected   string
+	}{
+		"default": {},
+		"custom missing config": {
+			ConfigHome: xdgHome,
+			Expected:   filepath.Join(xdgHome, "wakatime", "wakatime.cfg"),
+		},
+		"custom existing config": {
+			ConfigHome: xdgHome,
+			Existing:   true,
+			Expected:   filepath.Join(xdgHome, "wakatime", "wakatime.cfg"),
+		},
+		"relative config home": {
+			ConfigHome: "relative-config",
+		},
+		"unexpanded config home": {
+			ConfigHome: "~/.config",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+			t.Setenv("WAKATIME_HOME", "")
+			t.Setenv("XDG_CONFIG_HOME", test.ConfigHome)
+
+			expected := test.Expected
+			if expected == "" {
+				expected = filepath.Join(home, ".config", "wakatime", "wakatime.cfg")
+			}
+
+			if test.Existing {
+				require.NoError(t, os.MkdirAll(filepath.Dir(expected), 0700))
+				require.NoError(t, os.WriteFile(expected, []byte("[settings]\ndebug = true\n"), 0600))
+			}
+
+			configFilepath, err := ini.FilePath(t.Context(), viper.New())
+			require.NoError(t, err)
+			assert.Equal(t, expected, configFilepath)
+			assert.NoFileExists(t, filepath.Join(home, ".wakatime.cfg"))
+			assert.NoDirExists(t, filepath.Join(home, ".config"))
+		})
+	}
+}
+
+func TestFilePath_LegacyStatError(t *testing.T) {
+	home := t.TempDir()
+	legacy := filepath.Join(home, ".wakatime.cfg")
+	require.NoError(t, os.WriteFile(legacy, nil, 0600))
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("WAKATIME_HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	require.NoError(t, os.Chmod(home, 0))
+	t.Cleanup(func() { require.NoError(t, os.Chmod(home, 0700)) })
+
+	if _, err := os.Stat(legacy); !os.IsPermission(err) {
+		t.Skip("file permissions are not enforced")
+	}
+
+	configFilepath, err := ini.FilePath(t.Context(), viper.New())
+	require.NoError(t, err)
+	assert.Equal(t, legacy, configFilepath)
+}
+
+func TestFilePathExpandError(t *testing.T) {
+	v := vipertools.MustNew()
+	v.Set("config", "~missing-user/.wakatime.cfg")
+
+	_, err := ini.FilePath(t.Context(), v)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to expand config param")
+}
+
 func TestInternalFilePath(t *testing.T) {
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
@@ -224,6 +312,57 @@ func TestInternalFilePath(t *testing.T) {
 			assert.Equal(t, test.Expected, configFilepath)
 		})
 	}
+}
+
+func TestImportFilePathExpandError(t *testing.T) {
+	v := vipertools.MustNew()
+	v.Set("settings.import_cfg", "~missing-user/imported.cfg")
+
+	_, err := ini.ImportFilePath(t.Context(), v)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to expand settings.import_cfg param")
+}
+
+func TestInternalFilePathExpandError(t *testing.T) {
+	v := vipertools.MustNew()
+	v.Set("internal-config", "~missing-user/internal.cfg")
+
+	_, err := ini.InternalFilePath(t.Context(), v)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to expand internal-config param")
+}
+
+func TestImportFilePath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	v := vipertools.MustNew()
+
+	configFilepath, err := ini.ImportFilePath(t.Context(), v)
+	require.NoError(t, err)
+	assert.Empty(t, configFilepath)
+
+	v.Set("settings.import_cfg", "~/path/imported.cfg")
+
+	configFilepath, err = ini.ImportFilePath(t.Context(), v)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, "path", "imported.cfg"), configFilepath)
+}
+
+func TestWakaHomeDirAndResourcesDirFromEnv(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "wakatime-home")
+	t.Setenv("WAKATIME_HOME", home)
+
+	wakaHome, homeType, err := ini.WakaHomeDir(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, home, wakaHome)
+	assert.Equal(t, ini.WakaHomeTypeEnvVar, homeType)
+
+	resourcesDir, err := ini.WakaResourcesDir(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, home, resourcesDir)
 }
 
 func TestNewWriter(t *testing.T) {
@@ -266,6 +405,17 @@ func TestNewWriter_MissingFile(t *testing.T) {
 
 	assert.Equal(t, filepath.Join(tmpDir, "missing.cfg"), w.ConfigFilepath)
 	assert.NotNil(t, w.File)
+}
+
+func TestNewWriter_CreateMissingFileError(t *testing.T) {
+	v := vipertools.MustNew()
+
+	_, err := ini.NewWriter(t.Context(), v, func(context.Context, *viper.Viper) (string, error) {
+		return filepath.Join(t.TempDir(), "missing", "wakatime.cfg"), nil
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed creating file")
 }
 
 func TestNewWriter_CorruptedFile(t *testing.T) {
@@ -397,10 +547,39 @@ func TestWriteErr(t *testing.T) {
 	assert.Equal(t, "got undefined wakatime config file instance", err.Error())
 }
 
+func TestWriteSaveErr(t *testing.T) {
+	w := ini.WriterConfig{
+		File:           iniv1.Empty(),
+		ConfigFilepath: t.TempDir(),
+	}
+
+	err := w.Write(t.Context(), "settings", map[string]string{"debug": "true"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "error saving wakatime config")
+}
+
 func copyFile(t *testing.T, source, destination string) {
 	input, err := os.ReadFile(source)
 	require.NoError(t, err)
 
 	err = os.WriteFile(destination, input, 0600)
 	require.NoError(t, err)
+}
+
+func TestWritePreservesConcurrentUpdates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "internal.cfg")
+	v := viper.New()
+	location := func(context.Context, *viper.Viper) (string, error) { return path, nil }
+	first, err := ini.NewWriter(t.Context(), v, location)
+	require.NoError(t, err)
+	second, err := ini.NewWriter(t.Context(), v, location)
+	require.NoError(t, err)
+	require.NoError(t, first.Write(t.Context(), "internal",
+		map[string]string{"ai_logs_last_parsed_at": "2026-09-01T12:00:00Z"}))
+	require.NoError(t, second.Write(t.Context(), "internal",
+		map[string]string{"heartbeats_last_sent_at": "2026-09-01T12:01:00Z"}))
+	require.NoError(t, first.File.Reload())
+	assert.Equal(t, "2026-09-01T12:00:00Z", first.File.Section("internal").Key("ai_logs_last_parsed_at").String())
+	assert.Equal(t, "2026-09-01T12:01:00Z", first.File.Section("internal").Key("heartbeats_last_sent_at").String())
 }

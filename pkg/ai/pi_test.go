@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hackclub/hackatime-cli/pkg/ai"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wakatime/wakatime-cli/pkg/ai"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
 )
 
 func TestPiParse(t *testing.T) {
@@ -59,7 +59,7 @@ func TestPiParse(t *testing.T) {
 				"content": []map[string]interface{}{
 					{"type": "text", "text": "Inspect the project and fix main.go"},
 				},
-				"timestamp": 1776600001000,
+				"timestamp": int64(1776600001000),
 			},
 		}),
 		mustJSONLine(t, map[string]interface{}{
@@ -78,7 +78,7 @@ func TestPiParse(t *testing.T) {
 				"provider":  "anthropic",
 				"model":     "claude-opus-4-5",
 				"usage":     map[string]interface{}{"input": 10, "output": 20, "cacheRead": 3, "cacheWrite": 2},
-				"timestamp": 1776600002000,
+				"timestamp": int64(1776600002000),
 			},
 		}),
 		mustJSONLine(t, map[string]interface{}{
@@ -92,7 +92,7 @@ func TestPiParse(t *testing.T) {
 				"toolName":   "read",
 				"content":    []map[string]interface{}{{"type": "text", "text": "# Project\n"}},
 				"isError":    false,
-				"timestamp":  1776600003000,
+				"timestamp":  int64(1776600003000),
 			},
 		}),
 		mustJSONLine(t, map[string]interface{}{
@@ -114,7 +114,7 @@ func TestPiParse(t *testing.T) {
 				"provider":  "anthropic",
 				"model":     "claude-opus-4-5",
 				"usage":     map[string]interface{}{"input": 7, "output": 11, "cacheRead": 0, "cacheWrite": 0},
-				"timestamp": 1776600004000,
+				"timestamp": int64(1776600004000),
 			},
 		}),
 		mustJSONLine(t, map[string]interface{}{
@@ -131,7 +131,7 @@ func TestPiParse(t *testing.T) {
 				},
 				"details":   map[string]interface{}{"diff": "-old\n+new\n+more"},
 				"isError":   false,
-				"timestamp": 1776600005000,
+				"timestamp": int64(1776600005000),
 			},
 		}),
 		mustJSONLine(t, map[string]interface{}{
@@ -153,7 +153,7 @@ func TestPiParse(t *testing.T) {
 				"provider":  "anthropic",
 				"model":     "claude-opus-4-5",
 				"usage":     map[string]interface{}{"input": 5, "output": 9, "cacheRead": 0, "cacheWrite": 0},
-				"timestamp": 1776600006000,
+				"timestamp": int64(1776600006000),
 			},
 		}),
 		mustJSONLine(t, map[string]interface{}{
@@ -169,7 +169,7 @@ func TestPiParse(t *testing.T) {
 					{"type": "text", "text": "Successfully wrote 11 bytes to " + noteFile},
 				},
 				"isError":   false,
-				"timestamp": 1776600007000,
+				"timestamp": int64(1776600007000),
 			},
 		}),
 	}, "\n") + "\n"
@@ -200,11 +200,14 @@ func TestPiParse(t *testing.T) {
 	assert.Equal(t, "session-1", got[1].AISession)
 	require.NotNil(t, got[1].AILineChanges)
 	assert.Zero(t, *got[1].AILineChanges)
-	assert.Equal(t, int64(15), got[1].AIInputTokens)
+	assert.Equal(t, int64(12), got[1].AIInputTokens)
+	assert.Equal(t, int64(3), got[1].AICachedInputTokens)
 	assert.Equal(t, int64(20), got[1].AIOutputTokens)
 	require.NotNil(t, got[1].IsWrite)
 	assert.False(t, *got[1].IsWrite)
-	assert.Contains(t, got[1].UserAgent, "Pi/claude-opus-4-5")
+	assert.Contains(t, got[1].UserAgent, "opus/4-5")
+	assert.True(t, strings.Index(got[1].UserAgent, "opus/4-5") <
+		strings.Index(got[1].UserAgent, "plugin/0.0.1"))
 
 	assert.Equal(t, editFile, got[2].Entity)
 	require.NotNil(t, got[2].AILineChanges)
@@ -213,7 +216,9 @@ func TestPiParse(t *testing.T) {
 	assert.Equal(t, int64(11), got[2].AIOutputTokens)
 	require.NotNil(t, got[2].IsWrite)
 	assert.True(t, *got[2].IsWrite)
-	assert.Contains(t, got[2].UserAgent, "Pi/claude-opus-4-5")
+	assert.Contains(t, got[2].UserAgent, "opus/4-5")
+	assert.True(t, strings.Index(got[2].UserAgent, "opus/4-5") <
+		strings.Index(got[2].UserAgent, "editor/1.2.3"))
 	assert.Contains(t, got[2].UserAgent, "editor/1.2.3")
 
 	assert.Equal(t, noteFile, got[3].Entity)

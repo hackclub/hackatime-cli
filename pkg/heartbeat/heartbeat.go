@@ -8,9 +8,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/system"
-	"github.com/wakatime/wakatime-cli/pkg/version"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/system"
+	"github.com/hackclub/hackatime-cli/pkg/version"
 
 	"github.com/matishsiao/goInfo"
 )
@@ -21,6 +21,7 @@ var remoteAddressRegex = regexp.MustCompile(`(?i)^((ssh|sftp)://)+(?P<credential
 // Heartbeat is a structure representing activity for a user on a some entity.
 type Heartbeat struct {
 	AILineChanges         *int       `json:"ai_line_changes,omitempty"`
+	AICachedInputTokens   int64      `json:"ai_cached_input_tokens,omitempty"`
 	AISession             string     `json:"ai_session,omitempty"`
 	AISubscriptionPlan    string     `json:"ai_subscription_plan,omitempty"`
 	AIInputTokens         int64      `json:"ai_input_tokens,omitempty"`
@@ -55,13 +56,15 @@ type Heartbeat struct {
 	UserAgent             string     `json:"user_agent"`
 }
 
-// AITokens contains the previous and current token counts for calculating the delta input and output AI tokens used
-// since the last heartbeat.
+// AITokens contains previous and current token counts for calculating the delta
+// of input, cached input, and output AI tokens used since the last heartbeat.
 type AITokens struct {
-	LastInput     int64
-	LastOutput    int64
-	CurrentInput  int64
-	CurrentOutput int64
+	LastInput          int64
+	LastCachedInput    int64
+	LastOutput         int64
+	CurrentInput       int64
+	CurrentCachedInput int64
+	CurrentOutput      int64
 }
 
 // New creates a new instance of Heartbeat with formatted entity
@@ -143,6 +146,11 @@ func NewWithAITokens(
 		inputTokens = 0
 	}
 
+	cachedInputTokens := aiTokens.CurrentCachedInput - aiTokens.LastCachedInput
+	if cachedInputTokens < 0 {
+		cachedInputTokens = 0
+	}
+
 	outputTokens := aiTokens.CurrentOutput - aiTokens.LastOutput
 	if outputTokens < 0 {
 		outputTokens = 0
@@ -150,6 +158,7 @@ func NewWithAITokens(
 
 	return Heartbeat{
 		AILineChanges:        aiLineChanges,
+		AICachedInputTokens:  cachedInputTokens,
 		AISession:            aiSession,
 		AIInputTokens:        inputTokens,
 		AIOutputTokens:       outputTokens,
@@ -286,6 +295,8 @@ func UserAgent(ctx context.Context, plugin string) (userAgent string) {
 		plugin = "Unknown/0"
 	}
 
+	plugin = normalizePluginVersions(plugin)
+
 	info, err := goInfo.GetInfo()
 	if err != nil {
 		logger.Debugf("goInfo.GetInfo error: %s", err)
@@ -302,6 +313,27 @@ func UserAgent(ctx context.Context, plugin string) (userAgent string) {
 	)
 
 	return userAgent
+}
+
+// normalizePluginVersions replaces empty product versions with "unknown".
+// Product tokens in user agents are space-separated, so `Claude/` becomes
+// `Claude/unknown` while already-populated tokens are left unchanged.
+func normalizePluginVersions(plugin string) string {
+	fields := strings.Fields(plugin)
+	changed := false
+
+	for i, field := range fields {
+		if strings.HasSuffix(field, "/") {
+			fields[i] = field + "unknown"
+			changed = true
+		}
+	}
+
+	if !changed {
+		return strings.TrimSpace(plugin)
+	}
+
+	return strings.Join(fields, " ")
 }
 
 // PointerTo returns a pointer to the value passed in.

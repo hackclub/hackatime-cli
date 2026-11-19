@@ -1,10 +1,9 @@
-//go:build !freebsd && !openbsd && !netbsd && !dragonfly
+//go:build (!freebsd && !openbsd && !netbsd && !dragonfly) || (freebsd && (amd64 || arm64)) || (openbsd && (amd64 || arm64))
 
 package ai
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,12 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
 )
 
 // Windsurf contains params for detecting heartbeats from Windsurf transcripts.
 type Windsurf ParserConfig
+
+const windsurfRecentBubbleRowLimit = 5000
 
 type (
 	windsurfTokenCount struct {
@@ -88,6 +89,9 @@ type (
 
 // Parse parses the Windsurf SQLite state db for ai heartbeats.
 func (g Windsurf) Parse(ctx context.Context) (Heartbeats, error) {
+	ctx, cancel := aiSQLiteContext(ctx)
+	defer cancel()
+
 	dbPath, err := g.stateDBPath(ctx)
 	if err != nil {
 		return nil, err
@@ -109,9 +113,14 @@ func (g Windsurf) Parse(ctx context.Context) (Heartbeats, error) {
 	var heartbeats Heartbeats
 
 	bubbleCWDs := make(map[string]string)
+	bubbleModels := make(map[string]string)
 	bubbleTokens := make(map[string]heartbeat.AITokens)
 
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		var logLine windsurfLogLine
 		if err := json.Unmarshal([]byte(row.Value), &logLine); err != nil {
 			continue
@@ -119,18 +128,27 @@ func (g Windsurf) Parse(ctx context.Context) (Heartbeats, error) {
 
 		logLine.BubbleID = row.BubbleID
 
+		var value any
+		if json.Unmarshal([]byte(row.Value), &value) == nil && logLine.BubbleID != "" {
+			if model := cursorModelNameFromValue(value); model != "" {
+				bubbleModels[logLine.BubbleID] = model
+			}
+		}
+
 		if cwd := g.projectPath(logLine); cwd != "" && logLine.BubbleID != "" {
 			bubbleCWDs[logLine.BubbleID] = cwd
 		}
 
 		tokens := g.windsurfTokenCounts(logLine, bubbleTokens[logLine.BubbleID])
 
-		if logLine.CreatedAt.IsZero() || logLine.CreatedAt.Before(g.After) {
+		if logLine.CreatedAt.IsZero() ||
+			!timestampAtOrAfterCutoff(logLine.CreatedAt, ParserConfig(g).sessionAfter(logLine.BubbleID)) {
 			bubbleTokens[logLine.BubbleID] = g.advanceTokens(tokens)
 			continue
 		}
 
-		parsed := g.windsurfHeartbeats(logLine, bubbleCWDs[logLine.BubbleID], tokens)
+		parsed := g.windsurfHeartbeats(
+			logLine, bubbleCWDs[logLine.BubbleID], bubbleModels[logLine.BubbleID], tokens)
 		if len(parsed) == 0 {
 			bubbleTokens[logLine.BubbleID] = tokens
 			continue
@@ -146,16 +164,23 @@ func (g Windsurf) Parse(ctx context.Context) (Heartbeats, error) {
 
 func (Windsurf) windsurfTokenCounts(line windsurfLogLine, previous heartbeat.AITokens) heartbeat.AITokens {
 	if line.TokenCount != nil {
+		if line.TokenCount.isZero() {
+			return previous
+		}
+
 		current := previous
 		if line.TokenCount.InputTokens != nil {
-			current.CurrentInput = previous.LastInput + int64(*line.TokenCount.InputTokens)
+			current.CurrentInput = cumulativeTokenCount(
+				current.LastInput, current.CurrentInput, *line.TokenCount.InputTokens)
 		}
 
 		switch {
 		case line.TokenCount.OutputTokens != nil:
-			current.CurrentOutput = previous.LastOutput + int64(*line.TokenCount.OutputTokens)
+			current.CurrentOutput = cumulativeTokenCount(
+				current.LastOutput, current.CurrentOutput, *line.TokenCount.OutputTokens)
 		case line.TokenCount.TotalTokens != nil:
-			current.CurrentOutput = previous.LastOutput + int64(*line.TokenCount.TotalTokens)
+			current.CurrentOutput = cumulativeTokenCount(
+				current.LastOutput, current.CurrentOutput, *line.TokenCount.TotalTokens)
 		}
 
 		return current
@@ -180,17 +205,12 @@ func (Windsurf) windsurfTokenCounts(line windsurfLogLine, previous heartbeat.AIT
 	return current
 }
 
+func (c windsurfTokenCount) isZero() bool {
+	return cursorAllIntsZero(c.InputTokens, c.OutputTokens, c.TotalTokens)
+}
+
 func (Windsurf) stateDBModifiedAfter(dbPath string, after time.Time) bool {
-	if after.IsZero() {
-		return true
-	}
-
-	info, err := os.Stat(dbPath)
-	if err != nil {
-		return false
-	}
-
-	return info.ModTime().After(after)
+	return aiSQLiteModifiedAfter(dbPath, after)
 }
 
 func (Windsurf) stateDBPath(ctx context.Context) (string, error) {
@@ -220,28 +240,45 @@ func (Windsurf) stateDBPath(ctx context.Context) (string, error) {
 }
 
 func (Windsurf) queryRows(ctx context.Context, dbPath string) ([]windsurfLogRow, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := openAISQLiteDB(ctx, dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed opening windsurf sqlite db %q: %s", dbPath, err)
 	}
 	defer db.Close() // nolint:errcheck
 
 	rows, err := db.QueryContext(ctx, `
-SELECT key, CAST(value AS TEXT)
-FROM cursorDiskKV
-WHERE key LIKE 'bubbleId:%'
+WITH recentWindsurfRows AS (
+	SELECT key, CAST(value AS TEXT) AS value
+	FROM cursorDiskKV
+	WHERE key LIKE 'bubbleId:%'
+	ORDER BY rowid DESC
+	LIMIT ?
+)
+SELECT key, value
+FROM recentWindsurfRows
+WHERE json_valid(value)
   AND (
     (
-      json_extract(CAST(value AS TEXT), '$.toolFormerData.status') = 'completed'
+      json_extract(value, '$.toolFormerData.status') = 'completed'
       AND json_extract(
-        CAST(value AS TEXT),
+        value,
         '$.toolFormerData.name'
       ) IN ('edit_file', 'edit_file_v2', 'read_file', 'read_file_v2')
     )
-    OR json_extract(CAST(value AS TEXT), '$.text') IS NOT NULL
+		OR json_extract(value, '$.text') IS NOT NULL
+		OR json_extract(value, '$.model') IS NOT NULL
+		OR json_extract(value, '$.modelName') IS NOT NULL
+		OR json_extract(value, '$.modelId') IS NOT NULL
+		OR json_extract(value, '$.modelID') IS NOT NULL
+		OR json_extract(value, '$.model_id') IS NOT NULL
+		OR json_extract(value, '$.modelSlug') IS NOT NULL
+		OR json_extract(value, '$.modelDetails') IS NOT NULL
+		OR json_extract(value, '$.modelConfig') IS NOT NULL
+		OR json_extract(value, '$.selectedModel') IS NOT NULL
+		OR json_extract(value, '$.selectedChatModel') IS NOT NULL
   )
-ORDER BY json_extract(CAST(value AS TEXT), '$.createdAt') ASC;
-`)
+ORDER BY json_extract(value, '$.createdAt') ASC;
+`, windsurfRecentBubbleRowLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed querying windsurf sqlite db %q: %s", dbPath, err)
 	}
@@ -256,6 +293,10 @@ ORDER BY json_extract(CAST(value AS TEXT), '$.createdAt') ASC;
 		)
 		if err := rows.Scan(&key, &row); err != nil {
 			return nil, fmt.Errorf("failed scanning windsurf sqlite row: %s", err)
+		}
+
+		if err := aiSQLiteRead(ctx, key, row); err != nil {
+			return nil, err
 		}
 
 		row = strings.TrimSpace(row)
@@ -279,7 +320,12 @@ ORDER BY json_extract(CAST(value AS TEXT), '$.createdAt') ASC;
 	return results, nil
 }
 
-func (g Windsurf) windsurfHeartbeats(logLine windsurfLogLine, cwd string, tokens heartbeat.AITokens) Heartbeats {
+func (g Windsurf) windsurfHeartbeats(
+	logLine windsurfLogLine,
+	cwd string,
+	model string,
+	tokens heartbeat.AITokens,
+) Heartbeats {
 	var heartbeats Heartbeats
 
 	assignTokens := g.hasTokenDelta(tokens)
@@ -289,6 +335,7 @@ func (g Windsurf) windsurfHeartbeats(logLine windsurfLogLine, cwd string, tokens
 		logLine,
 		cwd,
 		logLine.BubbleID,
+		model,
 		appTokens,
 	); heartbeat != nil {
 		heartbeats = append(heartbeats, *heartbeat)
@@ -303,6 +350,7 @@ func (g Windsurf) windsurfHeartbeats(logLine windsurfLogLine, cwd string, tokens
 	if heartbeat := g.windsurfFileHeartbeat(
 		logLine,
 		logLine.BubbleID,
+		model,
 		fileTokens,
 	); heartbeat != nil {
 		heartbeats = append(heartbeats, *heartbeat)
@@ -315,6 +363,7 @@ func (g Windsurf) windsurfAppHeartbeat(
 	logLine windsurfLogLine,
 	cwd string,
 	sessionID string,
+	model string,
 	tokens *heartbeat.AITokens,
 ) *heartbeat.Heartbeat {
 	text := strings.TrimSpace(logLine.Text)
@@ -336,8 +385,8 @@ func (g Windsurf) windsurfAppHeartbeat(
 		heartbeat.AppType,
 		heartbeat.PointerTo(false),
 		cwd,
-		float64(logLine.CreatedAt.Unix()),
-		aiUserAgent(entity, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+		heartbeatTimestamp(logLine.CreatedAt),
+		aiUserAgentWithModel(entity, g.UserAgents, g.FallbackUserAgent, model, ""),
 	)
 	if logLine.Type == 1 {
 		h.AIPromptLength = promptLength(logLine.Text)
@@ -349,6 +398,7 @@ func (g Windsurf) windsurfAppHeartbeat(
 func (g Windsurf) windsurfFileHeartbeat(
 	logLine windsurfLogLine,
 	sessionID string,
+	model string,
 	tokens *heartbeat.AITokens,
 ) *heartbeat.Heartbeat {
 	switch logLine.ToolFormerData.Name {
@@ -372,8 +422,8 @@ func (g Windsurf) windsurfFileHeartbeat(
 			heartbeat.FileType,
 			heartbeat.PointerTo(true),
 			"",
-			float64(logLine.CreatedAt.Unix()),
-			aiUserAgent(filePath, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+			heartbeatTimestamp(logLine.CreatedAt),
+			aiUserAgentWithModel(filePath, g.UserAgents, g.FallbackUserAgent, model, ""),
 		)
 
 		return &h
@@ -409,8 +459,8 @@ func (g Windsurf) windsurfFileHeartbeat(
 			heartbeat.FileType,
 			heartbeat.PointerTo(true),
 			"",
-			float64(logLine.CreatedAt.Unix()),
-			aiUserAgent(filePath, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+			heartbeatTimestamp(logLine.CreatedAt),
+			aiUserAgentWithModel(filePath, g.UserAgents, g.FallbackUserAgent, model, ""),
 		)
 
 		return &h
@@ -456,8 +506,8 @@ func (g Windsurf) windsurfFileHeartbeat(
 			heartbeat.FileType,
 			heartbeat.PointerTo(false),
 			"",
-			float64(logLine.CreatedAt.Unix()),
-			aiUserAgent(filePath, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+			heartbeatTimestamp(logLine.CreatedAt),
+			aiUserAgentWithModel(filePath, g.UserAgents, g.FallbackUserAgent, model, ""),
 		)
 
 		return &h

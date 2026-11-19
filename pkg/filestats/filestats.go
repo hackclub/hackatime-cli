@@ -4,9 +4,9 @@ import (
 	"context"
 	"os"
 
-	"github.com/wakatime/wakatime-cli/pkg/file"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/file"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 // WithDetection initializes and returns a heartbeat handle option, which

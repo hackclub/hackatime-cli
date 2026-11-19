@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 // Pi contains params for detecting heartbeats from Pi session JSONL logs.
@@ -141,7 +141,7 @@ func (g Pi) transcriptPaths(ctx context.Context) ([]string, error) {
 		}
 
 		info, err := entry.Info()
-		if err != nil || info.ModTime().Before(g.After) {
+		if err != nil || !timestampAtOrAfterCutoff(info.ModTime(), g.After) {
 			return nil
 		}
 
@@ -181,16 +181,25 @@ func (g Pi) parseTranscript(ctx context.Context, transcript string) (Heartbeats,
 		version:   session.version,
 	}
 
+	clock, err := newTranscriptClock(ctx, transcript)
+	if err != nil {
+		return nil, err
+	}
+
 	for scanner.Scan() {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 
-		g.handleTranscriptLine(logger, transcript, scanner.Bytes(), session, &state)
+		g.handleTranscriptLine(logger, transcript, clock.normalize(scanner.Bytes()), session, &state)
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("failed reading pi transcript %q: %s", transcript, err)
+	}
+
+	if err := clock.save(); err != nil {
+		return nil, err
 	}
 
 	return state.heartbeats, nil
@@ -274,10 +283,11 @@ func (g Pi) handleTranscriptLine(
 		return
 	}
 
+	g.After = ParserConfig(g).sessionAfter(session.id)
 	state.tokens = g.piTokenCounts(logLine, state.tokens, g.After)
 	state.version = g.sessionVersion(state.version, logLine)
 
-	if logLine.Timestamp.IsZero() || logLine.Timestamp.Before(g.After) {
+	if logLine.Timestamp.IsZero() || !timestampAtOrAfterCutoff(logLine.Timestamp, g.After) {
 		return
 	}
 
@@ -297,6 +307,7 @@ func (g Pi) handleTranscriptLine(
 	}
 
 	state.tokens.LastInput = state.tokens.CurrentInput
+	state.tokens.LastCachedInput = state.tokens.CurrentCachedInput
 	state.tokens.LastOutput = state.tokens.CurrentOutput
 	state.heartbeats = append(state.heartbeats, aiHeartbeats...)
 }
@@ -401,7 +412,7 @@ func (Pi) trackToolCalls(msg piMessage, toolCalls map[string]piToolCall) {
 	}
 }
 
-func (g Pi) messageHeartbeat(
+func (Pi) messageHeartbeat(
 	timestamp time.Time,
 	sessionEntity string,
 	sessionID string,
@@ -461,7 +472,7 @@ func (g Pi) messageHeartbeat(
 		"",
 		cwd,
 		float64(timestamp.UnixMilli())/1000,
-		aiUserAgent(sessionEntity, userAgents, fallbackUserAgent, aiPlugin(g, version)),
+		aiUserAgentWithModel(sessionEntity, userAgents, fallbackUserAgent, version, ""),
 	)
 	if msg.Role == "user" && promptChars > 0 {
 		h.AIPromptLength = promptChars
@@ -519,7 +530,7 @@ func (g Pi) toolResultHeartbeat(
 		"",
 		"",
 		float64(timestamp.UnixMilli())/1000,
-		aiUserAgent(filePath, userAgents, fallbackUserAgent, aiPlugin(g, version)),
+		aiUserAgentWithModel(filePath, userAgents, fallbackUserAgent, version, ""),
 	)
 
 	return &h
@@ -537,12 +548,13 @@ func (Pi) piTokenCounts(line piLogLine, tokens heartbeat.AITokens, after time.Ti
 		inputTokens = *usage.Input
 	}
 
-	if usage.CacheRead != nil {
-		inputTokens += *usage.CacheRead
-	}
-
 	if usage.CacheWrite != nil {
 		inputTokens += *usage.CacheWrite
+	}
+
+	cachedInputTokens := int64(0)
+	if usage.CacheRead != nil {
+		cachedInputTokens = max(*usage.CacheRead, 0)
 	}
 
 	outputTokens := int64(0)
@@ -551,10 +563,12 @@ func (Pi) piTokenCounts(line piLogLine, tokens heartbeat.AITokens, after time.Ti
 	}
 
 	tokens.CurrentInput = tokens.LastInput + inputTokens
+	tokens.CurrentCachedInput = tokens.LastCachedInput + cachedInputTokens
 	tokens.CurrentOutput = tokens.LastOutput + outputTokens
 
-	if line.Timestamp.IsZero() || line.Timestamp.Before(after) {
+	if line.Timestamp.IsZero() || !timestampAtOrAfterCutoff(line.Timestamp, after) {
 		tokens.LastInput = tokens.CurrentInput
+		tokens.LastCachedInput = tokens.CurrentCachedInput
 		tokens.LastOutput = tokens.CurrentOutput
 	}
 

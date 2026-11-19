@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wakatime/wakatime-cli/pkg/file"
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/regex"
+	"github.com/hackclub/hackatime-cli/pkg/file"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/regex"
 )
 
 // Git contains git data.
@@ -173,11 +173,20 @@ func findSubmodule(ctx context.Context, fp string, patterns []regex.Regex) (stri
 			fmt.Errorf("error finding gitdir for submodule: %s", err)
 	}
 
-	if strings.Contains(gitdir, "modules") {
-		return gitdir, true, nil
+	if !strings.Contains(gitdir, "modules") {
+		return "", false, nil
 	}
 
-	return "", false, nil
+	_, isWorktree, err := findCommondir(ctx, gitdir)
+	if err != nil {
+		return "", false, err
+	}
+
+	if isWorktree {
+		return "", false, nil
+	}
+
+	return gitdir, true, nil
 }
 
 // shouldTakeSubmodule checks a filepath against the passed in regex patterns to determine,
@@ -343,7 +352,7 @@ func findGitRemote(ctx context.Context, fp string) (string, error) {
 					return "", fmt.Errorf("invalid origin url from %q: %s", fp, subline)
 				}
 
-				return strings.TrimSpace(strings.TrimSuffix(parts[1], ".git")), nil
+				return strings.TrimSuffix(strings.TrimSpace(parts[1]), ".git"), nil
 			}
 		}
 	}

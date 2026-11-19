@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 // MaxFileSizeSupported is the max number of bytes we will ever read from a file. Files
@@ -106,6 +106,7 @@ func CountLines(ctx context.Context, fp string) (int, error) {
 	reader := io.LimitReader(f, MaxFileSizeSupported)
 
 	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(nil, MaxFileSizeSupported+1)
 	scanner.Split(bufio.ScanLines)
 
 	var count int

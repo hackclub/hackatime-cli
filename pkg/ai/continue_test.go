@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hackclub/hackatime-cli/pkg/ai"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wakatime/wakatime-cli/pkg/ai"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
 )
 
 func TestContinueParse(t *testing.T) {
@@ -43,7 +43,7 @@ func TestContinueParse(t *testing.T) {
 
 	writeJSONL(t, filepath.Join(devDataDir, "tokensGenerated.jsonl"), []map[string]any{
 		{
-			"timestamp":       "2026-05-01T19:45:22.280Z",
+			"timestamp":       "2026-05-01T19:45:22.290Z",
 			"eventName":       "tokensGenerated",
 			"model":           "gpt-5.2",
 			"provider":        "openai",
@@ -110,7 +110,9 @@ func TestContinueParse(t *testing.T) {
 	assert.Equal(t, workspace, got[0].ProjectPathOverride)
 	require.NotNil(t, got[0].IsWrite)
 	assert.False(t, *got[0].IsWrite)
-	assert.Contains(t, got[0].UserAgent, "Continue/gpt-5.2")
+	assert.Contains(t, got[0].UserAgent, "gpt/5.2")
+	assert.True(t, strings.Index(got[0].UserAgent, "gpt/5.2") <
+		strings.Index(got[0].UserAgent, "Visual Studio Code/1.118.1"))
 	assert.Contains(t, got[0].UserAgent, "Visual Studio Code/1.118.1 (Continue/1.2.22)")
 
 	assert.Equal(t, readPath, got[1].Entity)
@@ -128,7 +130,9 @@ func TestContinueParse(t *testing.T) {
 	assert.Equal(t, 2, *got[2].AILineChanges)
 	require.NotNil(t, got[2].IsWrite)
 	assert.True(t, *got[2].IsWrite)
-	assert.Contains(t, got[2].UserAgent, "Continue/gpt-5.2")
+	assert.Contains(t, got[2].UserAgent, "gpt/5.2")
+	assert.True(t, strings.Index(got[2].UserAgent, "gpt/5.2") <
+		strings.Index(got[2].UserAgent, "editor/1.2.3"))
 	assert.Contains(t, got[2].UserAgent, "editor/1.2.3")
 }
 

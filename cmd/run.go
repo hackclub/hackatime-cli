@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	stdlog "log"
@@ -10,29 +11,29 @@ import (
 	"runtime/debug"
 	"strings"
 
-	cmdapi "github.com/wakatime/wakatime-cli/cmd/api"
-	"github.com/wakatime/wakatime-cli/cmd/configread"
-	"github.com/wakatime/wakatime-cli/cmd/configwrite"
-	"github.com/wakatime/wakatime-cli/cmd/fileexperts"
-	cmdheartbeat "github.com/wakatime/wakatime-cli/cmd/heartbeat"
-	cmdoffline "github.com/wakatime/wakatime-cli/cmd/offline"
-	"github.com/wakatime/wakatime-cli/cmd/offlinecount"
-	"github.com/wakatime/wakatime-cli/cmd/offlineprint"
-	"github.com/wakatime/wakatime-cli/cmd/offlinesync"
-	"github.com/wakatime/wakatime-cli/cmd/today"
-	"github.com/wakatime/wakatime-cli/cmd/todaygoal"
-	"github.com/wakatime/wakatime-cli/pkg/diagnostic"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/lexer"
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/log/setup"
-	"github.com/wakatime/wakatime-cli/pkg/metrics"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
-	pkgparams "github.com/wakatime/wakatime-cli/pkg/params"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
-	"github.com/wakatime/wakatime-cli/pkg/wakaerror"
+	cmdapi "github.com/hackclub/hackatime-cli/cmd/api"
+	"github.com/hackclub/hackatime-cli/cmd/configread"
+	"github.com/hackclub/hackatime-cli/cmd/configwrite"
+	"github.com/hackclub/hackatime-cli/cmd/fileexperts"
+	cmdheartbeat "github.com/hackclub/hackatime-cli/cmd/heartbeat"
+	cmdoffline "github.com/hackclub/hackatime-cli/cmd/offline"
+	"github.com/hackclub/hackatime-cli/cmd/offlinecount"
+	"github.com/hackclub/hackatime-cli/cmd/offlineprint"
+	"github.com/hackclub/hackatime-cli/cmd/offlinesync"
+	"github.com/hackclub/hackatime-cli/cmd/today"
+	"github.com/hackclub/hackatime-cli/cmd/todaygoal"
+	"github.com/hackclub/hackatime-cli/pkg/diagnostic"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/lexer"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/log/setup"
+	"github.com/hackclub/hackatime-cli/pkg/metrics"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
+	pkgparams "github.com/hackclub/hackatime-cli/pkg/params"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
+	"github.com/hackclub/hackatime-cli/pkg/wakaerror"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -144,10 +145,12 @@ func RunE(cmd *cobra.Command, v *viper.Viper) error {
 		return RunCmd(ctx, v, logger.IsVerboseEnabled(), logger.SendDiagsOnErrors(), offlinesync.RunWithoutRateLimiting)
 	}
 
-	if v.GetBool("sync-ai-activity") {
+	if syncAIActivityEnabled(v) {
 		logger.Debugln("command: sync-ai-activity")
 
-		return RunCmd(ctx, v, logger.IsVerboseEnabled(), logger.SendDiagsOnErrors(), cmdheartbeat.RunAISyncActivity)
+		return RunCmdWithOfflineSync(
+			ctx, v, logger.IsVerboseEnabled(), logger.SendDiagsOnErrors(), cmdheartbeat.RunAISyncActivity,
+		)
 	}
 
 	if v.GetBool("offline-count") {
@@ -170,6 +173,7 @@ func RunE(cmd *cobra.Command, v *viper.Viper) error {
 		"--offline-count",
 		"--print-offline-heartbeats",
 		"--sync-ai-activity",
+		"--sync-ai-heartbeats",
 		"--sync-offline-activity",
 		"--today",
 		"--today-goal",
@@ -180,6 +184,10 @@ func RunE(cmd *cobra.Command, v *viper.Viper) error {
 	_ = cmd.Help()
 
 	return exitcode.Err{Code: exitcode.ErrGeneric}
+}
+
+func syncAIActivityEnabled(v *viper.Viper) bool {
+	return v.GetBool("sync-ai-activity") || v.GetBool("sync-ai-heartbeats")
 }
 
 func parseConfigFiles(ctx context.Context, v *viper.Viper) error {
@@ -284,13 +292,15 @@ func runCmd(ctx context.Context, v *viper.Viper, verbose bool, sendDiagsOnErrors
 	exitCode, err := cmd(ctx, v)
 	// nolint:nestif
 	if err != nil {
-		if errwaka, ok := err.(wakaerror.Error); ok {
+		var errwaka wakaerror.Error
+		if errors.As(err, &errwaka) {
 			sendDiagsOnErrors = sendDiagsOnErrors || errwaka.SendDiagsOnErrors()
 			// if verbose is not set, use the value from the error
 			verbose = verbose || errwaka.ShouldLogError()
 		}
 
-		if errloglevel, ok := err.(wakaerror.LogLevel); ok {
+		var errloglevel wakaerror.LogLevel
+		if errors.As(err, &errloglevel) {
 			logger.Logf(zapcore.Level(errloglevel.LogLevel()), "failed to run command: %s", err)
 		} else if verbose {
 			logger.Errorf("failed to run command: %s", err)

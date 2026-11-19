@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/cmd"
-	"github.com/wakatime/wakatime-cli/pkg/api"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/log/setup"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
-	"github.com/wakatime/wakatime-cli/pkg/version"
+	"github.com/hackclub/hackatime-cli/cmd"
+	"github.com/hackclub/hackatime-cli/pkg/api"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/log/setup"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
+	"github.com/hackclub/hackatime-cli/pkg/version"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -346,7 +346,7 @@ func TestRunCmd_SendDiagnostics_Err(t *testing.T) {
 
 	assert.Equal(t, 42, err.(exitcode.Err).Code)
 	assert.Equal(t, 1, cmdNumCalls)
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
 func TestRunCmd_SendDiagnostics_Panic(t *testing.T) {
@@ -437,7 +437,7 @@ func TestRunCmd_SendDiagnostics_Panic(t *testing.T) {
 
 	assert.Equal(t, exitcode.ErrGeneric, err.(exitcode.Err).Code)
 	assert.Equal(t, 1, cmdNumCalls)
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
 func TestRunCmd_SendDiagnostics_NoLogs_Panic(t *testing.T) {
@@ -526,7 +526,7 @@ func TestRunCmd_SendDiagnostics_NoLogs_Panic(t *testing.T) {
 
 	assert.Equal(t, exitcode.ErrGeneric, err.(exitcode.Err).Code)
 	assert.Equal(t, 1, cmdNumCalls)
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
 func TestRunCmd_SendDiagnostics_WakaError(t *testing.T) {
@@ -604,7 +604,7 @@ func TestRunCmd_SendDiagnostics_WakaError(t *testing.T) {
 
 	cmdFn := func(_ context.Context, _ *viper.Viper) (int, error) {
 		cmdNumCalls++
-		return 42, offline.ErrOpenDB{Err: errors.New("fail")}
+		return 42, fmt.Errorf("wrapped: %w", offline.ErrOpenDB{Err: errors.New("fail")})
 	}
 
 	err = cmd.RunCmd(ctx, v, false, false, cmdFn)
@@ -615,7 +615,7 @@ func TestRunCmd_SendDiagnostics_WakaError(t *testing.T) {
 
 	assert.Equal(t, 42, err.(exitcode.Err).Code)
 	assert.Equal(t, 1, cmdNumCalls)
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
 func TestRunCmdWithOfflineSync(t *testing.T) {
@@ -729,7 +729,7 @@ func TestRunCmdWithOfflineSync(t *testing.T) {
 
 	assert.Len(t, stored, 0)
 
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
 func jsonEscape(t *testing.T, i string) string {

@@ -1,4 +1,4 @@
-//go:build !freebsd && !openbsd && !netbsd && !dragonfly
+//go:build (!freebsd && !openbsd && !netbsd && !dragonfly) || (freebsd && (amd64 || arm64)) || (openbsd && (amd64 || arm64))
 
 package ai
 
@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 
 	// Register the pure-Go SQLite driver used to read Goose session databases.
 	_ "modernc.org/sqlite"
@@ -25,13 +25,18 @@ import (
 // Goose contains params for detecting heartbeats from Goose SQLite session logs.
 type Goose ParserConfig
 
+const gooseRecentSessionRowLimit = 5000
+
 type gooseSessionRow struct {
 	ID                string
 	Name              string
 	WorkingDir        string
 	Provider          string
+	Model             string
 	UpdatedAt         time.Time
 	Input             int64
+	CachedInput       int64
+	CacheWriteInput   int64
 	Output            int64
 	UsesSummaryTokens bool
 	ThreadID          string
@@ -45,6 +50,9 @@ type gooseMessageContent struct {
 
 // Parse parses the Goose SQLite session db for ai heartbeats.
 func (g Goose) Parse(ctx context.Context) (Heartbeats, error) {
+	ctx, cancel := aiSQLiteContext(ctx)
+	defer cancel()
+
 	dbPath, err := g.dbPath(ctx)
 	if err != nil {
 		return nil, err
@@ -69,8 +77,12 @@ func (g Goose) Parse(ctx context.Context) (Heartbeats, error) {
 
 		tokens := heartbeat.AITokens{}
 		if !row.UsesSummaryTokens {
-			tokens.CurrentInput = row.Input
-			tokens.CurrentOutput = row.Output
+			// Goose normalizes input_tokens to include both cache reads and
+			// writes. Cache writes remain regular input; only reads use the
+			// discounted cached-input bucket.
+			tokens.CurrentInput = max(row.Input-row.CachedInput, 0)
+			tokens.CurrentCachedInput = max(row.CachedInput, 0)
+			tokens.CurrentOutput = max(row.Output, 0)
 		}
 
 		h := heartbeat.NewWithAITokens(
@@ -94,8 +106,8 @@ func (g Goose) Parse(ctx context.Context) (Heartbeats, error) {
 			false,
 			"",
 			row.WorkingDir,
-			float64(row.UpdatedAt.Unix()),
-			aiUserAgent(entity, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, row.Provider)),
+			heartbeatTimestamp(row.UpdatedAt),
+			aiUserAgentWithModel(entity, g.UserAgents, g.FallbackUserAgent, row.Model, ""),
 		)
 
 		prompt := row.Prompt
@@ -132,22 +144,13 @@ func (Goose) dbPath(ctx context.Context) (string, error) {
 }
 
 func (Goose) dbModifiedAfter(dbPath string, after time.Time) bool {
-	if after.IsZero() {
-		return true
-	}
-
-	info, err := os.Stat(dbPath)
-	if err != nil {
-		return false
-	}
-
-	return info.ModTime().After(after)
+	return aiSQLiteModifiedAfter(dbPath, after)
 }
 
 func (g Goose) queryRows(ctx context.Context, dbPath string) ([]gooseSessionRow, error) {
 	logger := log.Extract(ctx)
 
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := openAISQLiteDB(ctx, dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed opening goose sqlite db %q: %s", dbPath, err)
 	}
@@ -183,7 +186,7 @@ func (g Goose) queryRows(ctx context.Context, dbPath string) ([]gooseSessionRow,
 		return []gooseSessionRow{}, nil
 	}
 
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query, gooseRecentSessionRowLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed querying goose sqlite db %q: %s", dbPath, err)
 	}
@@ -203,18 +206,29 @@ func (g Goose) queryRows(ctx context.Context, dbPath string) ([]gooseSessionRow,
 			return nil, fmt.Errorf("failed scanning goose sqlite row: %s", err)
 		}
 
-		row, ok := g.rowFromValues(selectColumns, raw)
-		if !ok || row.UpdatedAt.IsZero() || row.UpdatedAt.Before(g.After) {
-			continue
+		var textValues []string
+		for _, value := range raw {
+			textValues = append(textValues, value.String)
 		}
 
-		row.Prompt = g.sessionPrompt(ctx, db, tables, row)
+		if err := aiSQLiteRead(ctx, textValues...); err != nil {
+			return nil, err
+		}
+
+		row, ok := g.rowFromValues(selectColumns, raw)
+		if !ok || row.UpdatedAt.IsZero() || !timestampAtOrAfterCutoff(row.UpdatedAt, ParserConfig(g).sessionAfter(row.ID)) {
+			continue
+		}
 
 		result = append(result, row)
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed reading goose sqlite rows: %s", err)
+	}
+
+	for i := range result {
+		result[i].Prompt = g.sessionPrompt(ctx, db, tables, result[i])
 	}
 
 	return result, nil
@@ -302,17 +316,34 @@ func (Goose) rowFromValues(columns []string, raw []sql.NullString) (gooseSession
 			row.WorkingDir = value
 		case "provider_name":
 			row.Provider = value
+		case "model_config_json":
+			var config struct {
+				Model string `json:"model_name"`
+			}
+			if json.Unmarshal([]byte(value), &config) == nil {
+				row.Model = config.Model
+			}
 		case "updated_at":
 			row.UpdatedAt = parseGooseTime(value)
 		case "input_tokens":
 			row.Input = parseGooseInt(value)
 		case "output_tokens":
 			row.Output = parseGooseInt(value)
+		case "cache_read_tokens":
+			row.CachedInput = parseGooseInt(value)
+		case "cache_write_tokens":
+			row.CacheWriteInput = parseGooseInt(value)
 		case "accumulated_input_tokens":
 			row.Input = parseGooseInt(value)
 			row.UsesSummaryTokens = true
 		case "accumulated_output_tokens":
 			row.Output = parseGooseInt(value)
+			row.UsesSummaryTokens = true
+		case "accumulated_cache_read_tokens":
+			row.CachedInput = parseGooseInt(value)
+			row.UsesSummaryTokens = true
+		case "accumulated_cache_write_tokens":
+			row.CacheWriteInput = parseGooseInt(value)
 			row.UsesSummaryTokens = true
 		case "thread_id":
 			row.ThreadID = value
@@ -373,6 +404,10 @@ func gooseQueryLatestPrompt(ctx context.Context, db *sql.DB, query, id string) s
 		var raw sql.NullString
 		if err := rows.Scan(&raw); err != nil || !raw.Valid {
 			continue
+		}
+
+		if err := aiSQLiteRead(ctx, raw.String); err != nil {
+			return ""
 		}
 
 		if prompt := goosePromptFromContent(raw.String); prompt != "" {
@@ -487,7 +522,7 @@ func gooseSessionsQuery(columns []string) (string, []string, error) {
 	selectColumns := []string{"id"}
 	selectColumns = append(selectColumns, titleColumns...)
 
-	for _, column := range []string{"working_dir", "updated_at", "provider_name"} {
+	for _, column := range []string{"working_dir", "updated_at", "provider_name", "model_config_json"} {
 		if slices.Contains(columns, column) {
 			selectColumns = append(selectColumns, column)
 		}
@@ -501,12 +536,28 @@ func gooseSessionsQuery(columns []string) (string, []string, error) {
 		selectColumns = append(selectColumns, outputColumn)
 	}
 
-	query := "SELECT " + strings.Join(selectColumns, ", ") + " FROM sessions"
+	cacheReadColumn := "cache_read_tokens"
+	cacheWriteColumn := "cache_write_tokens"
+
+	if inputColumn == "accumulated_input_tokens" {
+		cacheReadColumn = "accumulated_cache_read_tokens"
+		cacheWriteColumn = "accumulated_cache_write_tokens"
+	}
+
+	for _, column := range []string{cacheReadColumn, cacheWriteColumn} {
+		if slices.Contains(columns, column) {
+			selectColumns = append(selectColumns, column)
+		}
+	}
+
+	joinedColumns := strings.Join(selectColumns, ", ")
+
+	query := "WITH recentGooseSessions AS (SELECT " + joinedColumns + " FROM sessions"
 	if hasSessionType {
 		query += " WHERE LOWER(session_type) != 'hidden'"
 	}
 
-	query += " ORDER BY updated_at ASC"
+	query += " ORDER BY rowid DESC LIMIT ?) SELECT " + joinedColumns + " FROM recentGooseSessions ORDER BY updated_at ASC"
 
 	return query, selectColumns, nil
 }

@@ -4,13 +4,13 @@ To contribute to this project please carefully read this document.
 
 ## Setup
 
-`wakatime-cli` is written in [Go](https://golang.org/).
+`hackatime-cli` is written in [Go](https://golang.org/).
 
 Prerequisites:
 
 - We use `make` to build and run tests
 - We use [bats](https://bats-core.readthedocs.io/en/latest/installation.html) to test shell scripts. (`brew install bats-core`)
-- We use the [Go](https://golang.org/doc/install) version listed in [go.mod](https://github.com/wakatime/wakatime-cli/blob/develop/go.mod#L3)
+- We use the [Go](https://golang.org/doc/install) version listed in [go.mod](https://github.com/hackclub/hackatime-cli/blob/develop/go.mod#L3)
 
 After cloning, install dependencies with `make install` then build with `make`.
 
@@ -33,6 +33,8 @@ We use two branches:
 - `develop` - Default branch. PRs are merged to this branch.
 - `release` - Branch for production releases and hotfixes. GitHub Actions automatically builds releases from this branch.
 
+Merge pull requests with a merge commit, not a squash or rebase. The release workflow reads the source branch name from the merge commit message to work out the next version, and fails without it.
+
 ## Testing and Linting
 
 Run `make test-all` before creating any pull requests, or your PR won’t pass the automated checks.
@@ -42,7 +44,7 @@ Run `make test-all` before creating any pull requests, or your PR won’t pass t
 ## Pull Requests
 
 - Big changes, changes to the API, or changes with backward compatibility trade-offs should be first discussed in the Slack.
-- Search [existing pull requests](https://github.com/wakatime/wakatime-cli/pulls) to see if one has already been submitted for this change. Search the [issues](https://github.com/wakatime/wakatime-cli/issues?q=is%3Aissue) to see if there has been a discussion on this topic and whether your pull request can close any issues.
+- Search [existing pull requests](https://github.com/hackclub/hackatime-cli/pulls) to see if one has already been submitted for this change. Search the [issues](https://github.com/hackclub/hackatime-cli/issues?q=is%3Aissue) to see if there has been a discussion on this topic and whether your pull request can close any issues.
 - Code formatting should be consistent with the style used in the existing code.
 - Don't leave commented out code. A record of this code is already preserved in the commit history.
 - All commits must be atomic. This means that the commit completely accomplishes a single task. Each commit should result in fully functional code. Multiple tasks should not be combined in a single commit, but a single task should not be split over multiple commits (e.g. one commit per file modified is not a good practice). For more information see <http://www.freshconsulting.com/atomic-commits>.
@@ -57,7 +59,7 @@ Run `make test-all` before creating any pull requests, or your PR won’t pass t
   - If your pull request fixes an issue in the issue tracker, use the [closes/fixes/resolves syntax](https://help.github.com/articles/closing-issues-via-commit-messages) in the body to indicate this.
   - See <http://chris.beams.io/posts/git-commit> for more tips on writing good commit messages.
 - Pull request title and description should follow the same guidelines as commit messages.
-- Rebasing pull requests is OK and encouraged. After submitting your pull request some changes may be requested. Prefer using [git fixup](https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---fixupltcommitgt) rather than adding orphan extra commits to the pull request, then do a push to your fork. As soon as your PR gets approved one of us will merge it by rebasing and squashing any residuary commits that were pushed while reviewing. This will help to keep the commit history of the repository clean.
+- Rebasing pull requests is OK and encouraged. After submitting your pull request some changes may be requested. Prefer using [git fixup](https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---fixupltcommitgt) rather than adding orphan extra commits to the pull request, then do a push to your fork. Once your PR is approved one of us will merge it with a merge commit.
 
 ## Troubleshooting
 

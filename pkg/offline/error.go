@@ -3,13 +3,15 @@ package offline
 import (
 	"fmt"
 
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/wakaerror"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/wakaerror"
 )
 
 // ErrOpenDB is an error returned when the database cannot be opened.
 type ErrOpenDB struct {
-	Err error
+	Err            error
+	BackupFilepath string
+	Reset          bool
 }
 
 var _ wakaerror.Error = ErrOpenDB{}

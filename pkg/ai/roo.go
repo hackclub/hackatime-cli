@@ -10,12 +10,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
 )
 
 // RooCode contains params for detecting heartbeats from Roo Code task logs.
 type RooCode ParserConfig
+
+// Roo Code changed tokensIn to include cache reads and writes in commit
+// 416fa5727e66178e4bd18548325bf8bdc9d6adab. Older Anthropic records used
+// disjoint input/cache buckets.
+const rooInclusiveInputTokensSinceMS int64 = 1761938069000
 
 type (
 	rooUIMessage struct {
@@ -27,9 +32,12 @@ type (
 	}
 
 	rooAPIRequest struct {
-		Request   string `json:"request"`
-		TokensIn  int64  `json:"tokensIn"`
-		TokensOut int64  `json:"tokensOut"`
+		Request     string `json:"request"`
+		TokensIn    int64  `json:"tokensIn"`
+		TokensOut   int64  `json:"tokensOut"`
+		CacheWrites int64  `json:"cacheWrites"`
+		CacheReads  int64  `json:"cacheReads"`
+		APIProtocol string `json:"apiProtocol"`
 	}
 
 	rooToolAsk struct {
@@ -37,6 +45,12 @@ type (
 		Path    string `json:"path"`
 		Diff    string `json:"diff"`
 		Content string `json:"content"`
+	}
+
+	rooPendingTool struct {
+		tool        rooToolAsk
+		filePath    string
+		lineChanges int
 	}
 )
 
@@ -137,7 +151,7 @@ func (g RooCode) taskDirModifiedAfter(taskDir string) bool {
 
 	for _, path := range paths {
 		info, err := os.Stat(path)
-		if err == nil && !info.ModTime().Before(g.After) {
+		if err == nil && timestampAtOrAfterCutoff(info.ModTime(), g.After) {
 			return true
 		}
 	}
@@ -165,34 +179,28 @@ func (g RooCode) parseTaskDir(taskDir string) (Heartbeats, error) {
 	sessionEntity := appHeartbeatEntity(g.Name(), sessionID)
 	cwd := ""
 
-	var heartbeats Heartbeats
+	var (
+		heartbeats  Heartbeats
+		pendingTool *rooPendingTool
+	)
 
 	for _, message := range messages {
 		timestamp := time.UnixMilli(message.Timestamp)
-		if timestamp.IsZero() || timestamp.Before(g.After) {
+		if timestamp.IsZero() || !timestampAtOrAfterCutoff(timestamp, ParserConfig(g).sessionAfter(sessionID)) {
 			continue
 		}
 
-		if message.Say != nil && *message.Say == "api_req_started" && message.Text != nil {
-			request := rooAPIRequest{}
-			if err := json.Unmarshal([]byte(*message.Text), &request); err == nil {
-				if parsedCwd := rooCurrentWorkingDirectory(request.Request); parsedCwd != "" {
-					cwd = parsedCwd
-				}
+		var apiHeartbeats Heartbeats
 
-				heartbeats = append(heartbeats, g.appHeartbeat(
-					timestamp,
-					sessionEntity,
-					sessionID,
-					cwd,
-					rooTaskText(request.Request),
-					heartbeat.AITokens{
-						CurrentInput:  request.TokensIn,
-						CurrentOutput: request.TokensOut,
-					},
-				))
-			}
-		}
+		apiHeartbeats, cwd, pendingTool = g.rooAPIRequestHeartbeats(
+			message,
+			timestamp,
+			sessionEntity,
+			sessionID,
+			cwd,
+			pendingTool,
+		)
+		heartbeats = append(heartbeats, apiHeartbeats...)
 
 		if message.Ask != nil && *message.Ask == "tool" && message.Text != nil {
 			tool := rooToolAsk{}
@@ -205,11 +213,124 @@ func (g RooCode) parseTaskDir(taskDir string) (Heartbeats, error) {
 				continue
 			}
 
-			heartbeats = append(heartbeats, g.fileHeartbeat(timestamp, sessionID, filePath, lineChanges))
+			pendingTool = &rooPendingTool{
+				tool:        tool,
+				filePath:    filePath,
+				lineChanges: lineChanges,
+			}
 		}
 	}
 
 	return heartbeats, nil
+}
+
+func (g RooCode) rooAPIRequestHeartbeats(
+	message rooUIMessage,
+	timestamp time.Time,
+	sessionEntity string,
+	sessionID string,
+	cwd string,
+	pendingTool *rooPendingTool,
+) (Heartbeats, string, *rooPendingTool) {
+	if message.Say == nil || *message.Say != "api_req_started" || message.Text == nil {
+		return nil, cwd, pendingTool
+	}
+
+	request := rooAPIRequest{}
+	if err := json.Unmarshal([]byte(*message.Text), &request); err != nil {
+		return nil, cwd, pendingTool
+	}
+
+	var heartbeats Heartbeats
+
+	fileHeartbeat, handled := g.rooPendingToolResultHeartbeat(timestamp, sessionID, request.Request, pendingTool)
+	if fileHeartbeat != nil {
+		heartbeats = append(heartbeats, *fileHeartbeat)
+	}
+
+	if handled {
+		pendingTool = nil
+	}
+
+	if parsedCwd := rooCurrentWorkingDirectory(request.Request); parsedCwd != "" {
+		cwd = parsedCwd
+	}
+
+	heartbeats = append(heartbeats, g.appHeartbeat(
+		timestamp,
+		sessionEntity,
+		sessionID,
+		cwd,
+		rooTaskText(request.Request),
+		rooRequestTokens(request, timestamp),
+	))
+
+	return heartbeats, cwd, pendingTool
+}
+
+func rooRequestTokens(request rooAPIRequest, timestamp time.Time) heartbeat.AITokens {
+	input := max(request.TokensIn, 0)
+	cacheRead := max(request.CacheReads, 0)
+	cacheWrite := max(request.CacheWrites, 0)
+
+	if timestamp.UnixMilli() < rooInclusiveInputTokensSinceMS && request.APIProtocol != "openai" {
+		// Historical Anthropic records stored fresh input separately.
+		input += cacheWrite
+	} else {
+		// Current records and historical OpenAI records include cache tokens in
+		// tokensIn. Cache writes remain regular input in our two-bucket model.
+		input = max(input-cacheRead, 0)
+	}
+
+	return heartbeat.AITokens{
+		CurrentInput:       input,
+		CurrentCachedInput: cacheRead,
+		CurrentOutput:      max(request.TokensOut, 0),
+	}
+}
+
+func (g RooCode) rooPendingToolResultHeartbeat(
+	timestamp time.Time,
+	sessionID string,
+	request string,
+	pending *rooPendingTool,
+) (*heartbeat.Heartbeat, bool) {
+	if pending == nil {
+		return nil, false
+	}
+
+	handled, succeeded := rooToolResultOutcome(request, pending.tool)
+	if !succeeded {
+		return nil, handled
+	}
+
+	h := g.fileHeartbeat(timestamp, sessionID, pending.filePath, pending.lineChanges)
+
+	return &h, true
+}
+
+func rooToolResultOutcome(request string, tool rooToolAsk) (bool, bool) {
+	var (
+		resultPrefix string
+		successText  string
+	)
+
+	switch tool.Tool {
+	case "appliedDiff":
+		resultPrefix = "[apply_diff for "
+		successText = "Changes successfully applied"
+	case "writeToFile":
+		resultPrefix = "[write_to_file for "
+		successText = "The content was successfully saved"
+	default:
+		return false, false
+	}
+
+	if !strings.Contains(request, resultPrefix) {
+		return false, false
+	}
+
+	return true, strings.Contains(request, successText)
 }
 
 func (g RooCode) appHeartbeat(
@@ -241,8 +362,8 @@ func (g RooCode) appHeartbeat(
 		false,
 		"",
 		cwd,
-		float64(timestamp.Unix()),
-		aiUserAgent(entity, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+		heartbeatTimestamp(timestamp),
+		aiUserAgentWithModel(entity, g.UserAgents, g.FallbackUserAgent, "", ""),
 	)
 	h.AIPromptLength = promptLength(taskText)
 
@@ -276,8 +397,8 @@ func (g RooCode) fileHeartbeat(
 		false,
 		"",
 		"",
-		float64(timestamp.Unix()),
-		aiUserAgent(filePath, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, "")),
+		heartbeatTimestamp(timestamp),
+		aiUserAgentWithModel(filePath, g.UserAgents, g.FallbackUserAgent, "", ""),
 	)
 }
 

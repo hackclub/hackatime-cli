@@ -7,11 +7,10 @@ import (
 	"net/http"
 	"os"
 	"testing"
-	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/api"
-	"github.com/wakatime/wakatime-cli/pkg/diagnostic"
-	"github.com/wakatime/wakatime-cli/pkg/version"
+	"github.com/hackclub/hackatime-cli/pkg/api"
+	"github.com/hackclub/hackatime-cli/pkg/diagnostic"
+	"github.com/hackclub/hackatime-cli/pkg/version"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,5 +77,38 @@ func TestClient_SendDiagnostics(t *testing.T) {
 	err := c.SendDiagnostics(t.Context(), "vim", false, diagnostics...)
 	require.NoError(t, err)
 
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
+}
+
+func TestClient_SendDiagnostics_ErrorBranches(t *testing.T) {
+	c := api.NewClient("http://example.test")
+	err := c.SendDiagnostics(t.Context(), "vim", false, diagnostic.Diagnostic{Type: diagnostic.TypeUnknown})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown diagnostic type")
+
+	c = api.NewClient("%")
+	err = c.SendDiagnostics(t.Context(), "vim", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create request")
+
+	url, router, closeServer := setupTestServer()
+	defer closeServer()
+
+	router.HandleFunc("/plugins/errors", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("bad gateway"))
+	})
+
+	c = api.NewClient(url)
+	err = c.SendDiagnostics(t.Context(), "vim", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid response status")
+
+	closedURL, _, closeClosedServer := setupTestServer()
+	closeClosedServer()
+
+	c = api.NewClient(closedURL)
+	err = c.SendDiagnostics(t.Context(), "vim", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed making request")
 }

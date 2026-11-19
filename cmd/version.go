@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/version"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/version"
 
 	"github.com/spf13/viper"
 )
@@ -13,7 +13,7 @@ import (
 func runVersion(_ context.Context, v *viper.Viper) (int, error) {
 	if v.GetBool("verbose") {
 		fmt.Printf(
-			"wakatime-cli\n  Version: %s\n  Commit: %s\n  Built: %s\n  OS/Arch: %s/%s\n",
+			"hackatime-cli\n  Version: %s\n  Commit: %s\n  Built: %s\n  OS/Arch: %s/%s\n",
 			version.Version,
 			version.Commit,
 			version.BuildDate,

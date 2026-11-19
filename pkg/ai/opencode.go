@@ -1,4 +1,4 @@
-//go:build !freebsd && !openbsd && !netbsd && !dragonfly
+//go:build (!freebsd && !openbsd && !netbsd && !dragonfly) || (freebsd && (amd64 || arm64)) || (openbsd && (amd64 || arm64))
 
 package ai
 
@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	pathpkg "path"
@@ -14,15 +15,29 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 
 	// Register the pure-Go SQLite driver used to read OpenCode session databases.
 	_ "modernc.org/sqlite"
 )
 
 // OpenCode contains params for detecting heartbeats from OpenCode session logs.
-type OpenCode ParserConfig
+type OpenCode struct {
+	After             time.Time
+	FallbackUserAgent string
+	UserAgents        map[string]string
+	ProjectInfo       ProjectInfo
+	checkpoint        *parserCheckpoint
+	seenMessages      map[string]bool
+	v2Sessions        map[string]bool
+}
+
+const (
+	openCodeRecentMessageRowLimit = 5000
+	openCodeRecentPartRowLimit    = 5000
+)
 
 type (
 	openCodeSessionInfo struct {
@@ -48,8 +63,13 @@ type (
 			Root string `json:"root"`
 		} `json:"path"`
 		Tokens *struct {
-			Input  int64 `json:"input"`
-			Output int64 `json:"output"`
+			Input     int64 `json:"input"`
+			Output    int64 `json:"output"`
+			Reasoning int64 `json:"reasoning"`
+			Cache     struct {
+				Read  int64 `json:"read"`
+				Write int64 `json:"write"`
+			} `json:"cache"`
 		} `json:"tokens"`
 		Time struct {
 			Created int64 `json:"created"`
@@ -57,18 +77,21 @@ type (
 	}
 
 	openCodePart struct {
-		ID        string `json:"id"`
-		MessageID string `json:"messageID"`
-		SessionID string `json:"sessionID"`
-		Type      string `json:"type"`
-		Text      string `json:"text"`
-		Ignored   bool   `json:"ignored"`
-		Tool      string `json:"tool"`
-		State     *struct {
-			Status   string          `json:"status"`
-			Input    json.RawMessage `json:"input"`
-			Metadata json.RawMessage `json:"metadata"`
-		} `json:"state"`
+		ID        string             `json:"id"`
+		MessageID string             `json:"messageID"`
+		SessionID string             `json:"sessionID"`
+		Type      string             `json:"type"`
+		Text      string             `json:"text"`
+		Ignored   bool               `json:"ignored"`
+		Tool      string             `json:"tool"`
+		State     *openCodeToolState `json:"state"`
+	}
+
+	openCodeToolState struct {
+		Status     string          `json:"status"`
+		Input      json.RawMessage `json:"input"`
+		Metadata   json.RawMessage `json:"metadata"`
+		Structured json.RawMessage `json:"structured"`
 	}
 
 	openCodeMessageWithParts struct {
@@ -77,12 +100,14 @@ type (
 	}
 
 	openCodeEditInput struct {
+		Path      string `json:"path"`
 		FilePath  string `json:"filePath"`
 		OldString string `json:"oldString"`
 		NewString string `json:"newString"`
 	}
 
 	openCodeWriteInput struct {
+		Path     string `json:"path"`
 		FilePath string `json:"filePath"`
 		Content  string `json:"content"`
 	}
@@ -109,6 +134,7 @@ type (
 
 	openCodeApplyPatchMetadata struct {
 		Files []struct {
+			Type      string `json:"type"`
 			FilePath  string `json:"filePath"`
 			Patch     string `json:"patch"`
 			Additions int    `json:"additions"`
@@ -117,18 +143,28 @@ type (
 	}
 )
 
-// Parse parses OpenCode legacy storage first, then falls back to the SQLite db.
+// Parse merges database generations and legacy files by session and message ID.
 func (g OpenCode) Parse(ctx context.Context) (Heartbeats, error) {
-	legacy, err := g.parseLegacyStorage(ctx)
-	if err != nil {
-		return nil, err
+	g.seenMessages = make(map[string]bool)
+	g.v2Sessions = make(map[string]bool)
+
+	current, sqliteErr := g.parseSQLite(ctx)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 
-	if len(legacy) > 0 {
-		return legacy, nil
+	legacy, legacyErr := g.parseLegacyStorage(ctx)
+	current = append(current, legacy...)
+
+	err := errors.Join(sqliteErr, legacyErr)
+	if err != nil && len(current) > 0 {
+		// The caller discards heartbeats on error. Report partial failures here
+		// so valid records from the remaining sources are still submitted.
+		log.Extract(ctx).Debugf("skipped unreadable OpenCode data: %s", err)
+		return current, nil
 	}
 
-	return g.parseSQLite(ctx)
+	return current, err
 }
 
 func (g OpenCode) parseLegacyStorage(ctx context.Context) (Heartbeats, error) {
@@ -137,18 +173,19 @@ func (g OpenCode) parseLegacyStorage(ctx context.Context) (Heartbeats, error) {
 		return nil, err
 	}
 
-	var heartbeats Heartbeats
+	var (
+		heartbeats Heartbeats
+		parseErr   error
+	)
 
 	for _, dataRoot := range dataRoots {
 		parsed, err := g.parseLegacyRoot(dataRoot)
-		if err != nil {
-			return nil, err
-		}
+		parseErr = errors.Join(parseErr, err)
 
 		heartbeats = append(heartbeats, parsed...)
 	}
 
-	return heartbeats, nil
+	return heartbeats, parseErr
 }
 
 func (g OpenCode) parseLegacyRoot(dataRoot string) (Heartbeats, error) {
@@ -161,11 +198,15 @@ func (g OpenCode) parseLegacyRoot(dataRoot string) (Heartbeats, error) {
 		return nil, fmt.Errorf("failed to stat OpenCode sessions directory %q: %s", sessionsDir, err)
 	}
 
-	var sessionPaths []string
+	var (
+		sessionPaths []string
+		parseErr     error
+	)
 
 	err := filepath.WalkDir(sessionsDir, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			parseErr = errors.Join(parseErr, walkErr)
+			return nil
 		}
 
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
@@ -174,7 +215,8 @@ func (g OpenCode) parseLegacyRoot(dataRoot string) (Heartbeats, error) {
 
 		session, err := g.readSessionInfo(path)
 		if err != nil {
-			return err
+			parseErr = errors.Join(parseErr, err)
+			return nil
 		}
 
 		if g.After.IsZero() || session.Time.Updated == 0 {
@@ -182,34 +224,36 @@ func (g OpenCode) parseLegacyRoot(dataRoot string) (Heartbeats, error) {
 			return nil
 		}
 
-		if !time.UnixMilli(session.Time.Updated).Before(g.After) {
+		if timestampAtOrAfterCutoff(time.UnixMilli(session.Time.Updated), g.After) {
 			sessionPaths = append(sessionPaths, path)
 		}
 
 		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to walk OpenCode sessions directory %q: %s", sessionsDir, err)
+	if err = errors.Join(parseErr, err); err != nil {
+		parseErr = fmt.Errorf("failed to walk OpenCode sessions directory %q: %s", sessionsDir, err)
 	}
 
 	var heartbeats Heartbeats
 
 	for _, sessionPath := range sessionPaths {
 		parsed, err := g.parseLegacySession(sessionPath)
-		if err != nil {
-			return nil, err
-		}
+		parseErr = errors.Join(parseErr, err)
 
 		heartbeats = append(heartbeats, parsed...)
 	}
 
-	return heartbeats, nil
+	return heartbeats, parseErr
 }
 
 func (g OpenCode) parseLegacySession(sessionPath string) (Heartbeats, error) {
 	session, err := g.readSessionInfo(sessionPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if g.v2Sessions[session.ID] {
+		return nil, nil
 	}
 
 	baseStorageDir := filepath.Dir(filepath.Dir(filepath.Dir(sessionPath)))
@@ -224,7 +268,10 @@ func (g OpenCode) parseLegacySession(sessionPath string) (Heartbeats, error) {
 		return nil, fmt.Errorf("failed to read OpenCode messages directory %q: %s", messagesDir, err)
 	}
 
-	var messages []openCodeMessageWithParts
+	var (
+		messages []openCodeMessageWithParts
+		parseErr error
+	)
 
 	for _, entry := range messageEntries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
@@ -235,13 +282,12 @@ func (g OpenCode) parseLegacySession(sessionPath string) (Heartbeats, error) {
 
 		message, err := g.readMessageInfo(messagePath)
 		if err != nil {
-			return nil, err
+			parseErr = errors.Join(parseErr, err)
+			continue
 		}
 
 		parts, err := g.readParts(baseStorageDir, message.ID)
-		if err != nil {
-			return nil, err
-		}
+		parseErr = errors.Join(parseErr, err)
 
 		messages = append(messages, openCodeMessageWithParts{
 			info:  message,
@@ -249,16 +295,22 @@ func (g OpenCode) parseLegacySession(sessionPath string) (Heartbeats, error) {
 		})
 	}
 
-	return g.sessionHeartbeats(session, messages), nil
+	return g.sessionHeartbeats(session, messages), parseErr
 }
 
 func (g OpenCode) parseSQLite(ctx context.Context) (Heartbeats, error) {
+	ctx, cancel := aiSQLiteContext(ctx)
+	defer cancel()
+
 	dbPaths, err := openCodeSQLiteDBPaths(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var heartbeats Heartbeats
+	var (
+		heartbeats Heartbeats
+		parseErr   error
+	)
 
 	for _, dbPath := range dbPaths {
 		if !openCodeSQLiteDBModifiedAfter(dbPath, g.After) {
@@ -266,44 +318,80 @@ func (g OpenCode) parseSQLite(ctx context.Context) (Heartbeats, error) {
 		}
 
 		parsed, err := g.parseSQLiteDB(ctx, dbPath)
-		if err != nil {
-			return nil, err
-		}
+		parseErr = errors.Join(parseErr, err)
 
 		heartbeats = append(heartbeats, parsed...)
+
+		if aiSQLiteRead(ctx) != nil {
+			break
+		}
 	}
 
-	return heartbeats, nil
+	return heartbeats, parseErr
 }
 
 func (g OpenCode) parseSQLiteDB(ctx context.Context, dbPath string) (Heartbeats, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := openAISQLiteDB(ctx, dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed opening OpenCode sqlite db %q: %s", dbPath, err)
 	}
 	defer db.Close() // nolint:errcheck
 
-	sessions, err := queryOpenCodeSQLiteSessions(ctx, db, dbPath)
+	tables, err := genericAISQLiteTables(ctx, db)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed querying OpenCode sqlite sessions %q: %w", dbPath, err)
 	}
+
+	var (
+		current  Heartbeats
+		migrated map[string]bool
+		parseErr error
+	)
+
+	// OpenCode 2.0.18 renamed the sessions table from "session" to "session_v2";
+	sessionsTable := "session"
+	if slices.Contains(tables, "session_v2") {
+		sessionsTable = "session_v2"
+	}
+
+	if slices.Contains(tables, sessionsTable) && slices.Contains(tables, "session_message") {
+		current, migrated, err = g.parseSQLiteV2(ctx, db, sessionsTable)
+		parseErr = errors.Join(parseErr, err)
+
+		if g.v2Sessions != nil {
+			for id := range migrated {
+				g.v2Sessions[id] = true
+			}
+		}
+	}
+
+	if !slices.Contains(tables, "session") || !slices.Contains(tables, "message") {
+		return current, parseErr
+	}
+
+	sessions, err := queryOpenCodeSQLiteSessions(ctx, db, dbPath)
+	parseErr = errors.Join(parseErr, err)
 
 	messagesBySession, messageIDs, err := g.querySQLiteMessages(ctx, db, dbPath)
 	if err != nil {
-		return nil, err
+		return current, errors.Join(parseErr, err)
 	}
 
 	if len(messageIDs) == 0 {
-		return nil, nil
+		return current, parseErr
 	}
 
 	if err := queryOpenCodeSQLiteParts(ctx, db, dbPath, messagesBySession, messageIDs); err != nil {
-		return nil, err
+		parseErr = errors.Join(parseErr, err)
 	}
 
 	var heartbeats Heartbeats
 
 	for sessionID, messages := range messagesBySession {
+		if migrated[sessionID] {
+			continue
+		}
+
 		session, ok := sessions[sessionID]
 		if !ok {
 			session = openCodeSessionInfo{ID: sessionID}
@@ -312,8 +400,13 @@ func (g OpenCode) parseSQLiteDB(ctx context.Context, dbPath string) (Heartbeats,
 		heartbeats = append(heartbeats, g.sessionHeartbeats(session, messages)...)
 	}
 
-	return heartbeats, nil
+	return append(current, heartbeats...), parseErr
 }
+
+// Leave room for SQLite record headers and integer columns as SQLITE_LIMIT_LENGTH
+// also limits encoded rows. octet_length reads column sizes from metadata without
+// loading oversized values, and counts bytes rather than Unicode characters.
+const openCodeSQLiteRowSizeLimit = maxTranscriptLineSize - 128
 
 func queryOpenCodeSQLiteSessions(
 	ctx context.Context,
@@ -322,8 +415,10 @@ func queryOpenCodeSQLiteSessions(
 ) (map[string]openCodeSessionInfo, error) {
 	rows, err := db.QueryContext(ctx, `
 SELECT id, COALESCE(directory, ''), COALESCE(version, '')
-FROM session;
-`)
+FROM session
+WHERE COALESCE(octet_length(id), 0) + COALESCE(octet_length(directory), 0)
+    + COALESCE(octet_length(version), 0) <= ?;
+`, openCodeSQLiteRowSizeLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed querying OpenCode sqlite sessions %q: %s", dbPath, err)
 	}
@@ -334,7 +429,12 @@ FROM session;
 	for rows.Next() {
 		var session openCodeSessionInfo
 		if err := rows.Scan(&session.ID, &session.Directory, &session.Version); err != nil {
-			return nil, fmt.Errorf("failed scanning OpenCode sqlite session row: %s", err)
+			log.Extract(ctx).Debugf("skipping OpenCode sqlite session row: %s", err)
+			continue
+		}
+
+		if err := aiSQLiteRead(ctx, session.ID, session.Directory, session.Version); err != nil {
+			return nil, err
 		}
 
 		sessions[session.ID] = session
@@ -353,11 +453,20 @@ func (g OpenCode) querySQLiteMessages(
 	dbPath string,
 ) (map[string][]openCodeMessageWithParts, map[string]string, error) {
 	rows, err := db.QueryContext(ctx, `
-SELECT id, session_id, CAST(data AS TEXT), time_created
-FROM message
+WITH recentOpenCodeMessages AS (
+	SELECT id, session_id, CAST(data AS TEXT) AS data, time_created
+	FROM message
+	WHERE COALESCE(octet_length(id), 0) + COALESCE(octet_length(session_id), 0)
+	    + COALESCE(octet_length(data), 0) <= ?
+	ORDER BY rowid DESC
+	LIMIT ?
+)
+SELECT id, session_id, data, time_created
+FROM recentOpenCodeMessages
 WHERE time_created >= ?
+  AND json_valid(data)
 ORDER BY time_created ASC, id ASC;
-`, g.afterUnixMilli())
+`, openCodeSQLiteRowSizeLimit, openCodeRecentMessageRowLimit, g.afterUnixMilli())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed querying OpenCode sqlite messages %q: %s", dbPath, err)
 	}
@@ -375,7 +484,12 @@ ORDER BY time_created ASC, id ASC;
 		)
 
 		if err := rows.Scan(&id, &sessionID, &data, &createdAt); err != nil {
-			return nil, nil, fmt.Errorf("failed scanning OpenCode sqlite message row: %s", err)
+			log.Extract(ctx).Debugf("skipping OpenCode sqlite message row: %s", err)
+			continue
+		}
+
+		if err := aiSQLiteRead(ctx, id, sessionID, data); err != nil {
+			return nil, nil, err
 		}
 
 		var message openCodeMessageInfo
@@ -390,7 +504,8 @@ ORDER BY time_created ASC, id ASC;
 			message.Time.Created = createdAt
 		}
 
-		if message.Time.Created == 0 || time.UnixMilli(message.Time.Created).Before(g.After) {
+		if message.Time.Created == 0 ||
+			!timestampAtOrAfterCutoff(time.UnixMilli(message.Time.Created), g.sessionAfter(message.SessionID)) {
 			continue
 		}
 
@@ -424,11 +539,20 @@ func (g OpenCode) querySQLiteSeedMessages(
 	}
 
 	rows, err := db.QueryContext(ctx, `
-SELECT id, session_id, CAST(data AS TEXT), time_created
-FROM message
+WITH recentOpenCodeSeedMessages AS (
+	SELECT id, session_id, CAST(data AS TEXT) AS data, time_created
+	FROM message
+	WHERE COALESCE(octet_length(id), 0) + COALESCE(octet_length(session_id), 0)
+	    + COALESCE(octet_length(data), 0) <= ?
+	ORDER BY rowid DESC
+	LIMIT ?
+)
+SELECT id, session_id, data, time_created
+FROM recentOpenCodeSeedMessages
 WHERE time_created < ?
+  AND json_valid(data)
 ORDER BY time_created DESC, id DESC;
-`, g.afterUnixMilli())
+`, openCodeSQLiteRowSizeLimit, openCodeRecentMessageRowLimit, g.afterUnixMilli())
 	if err != nil {
 		return fmt.Errorf("failed querying OpenCode sqlite seed messages %q: %s", dbPath, err)
 	}
@@ -452,11 +576,16 @@ ORDER BY time_created DESC, id DESC;
 		)
 
 		if err := rows.Scan(&id, &sessionID, &data, &createdAt); err != nil {
-			return fmt.Errorf("failed scanning OpenCode sqlite seed message row: %s", err)
+			log.Extract(ctx).Debugf("skipping OpenCode sqlite seed message row: %s", err)
+			continue
 		}
 
 		if _, ok := remaining[sessionID]; !ok {
 			continue
+		}
+
+		if err := aiSQLiteRead(ctx, id, sessionID, data); err != nil {
+			return err
 		}
 
 		var message openCodeMessageInfo
@@ -496,10 +625,19 @@ func queryOpenCodeSQLiteParts(
 	messageIDs map[string]string,
 ) error {
 	rows, err := db.QueryContext(ctx, `
-SELECT id, message_id, session_id, CAST(data AS TEXT)
-FROM part
+WITH recentOpenCodeParts AS (
+	SELECT id, message_id, session_id, CAST(data AS TEXT) AS data, time_created
+	FROM part
+	WHERE COALESCE(octet_length(id), 0) + COALESCE(octet_length(message_id), 0)
+	    + COALESCE(octet_length(session_id), 0) + COALESCE(octet_length(data), 0) <= ?
+	ORDER BY rowid DESC
+	LIMIT ?
+)
+SELECT id, message_id, session_id, data
+FROM recentOpenCodeParts
+WHERE json_valid(data)
 ORDER BY time_created ASC, id ASC;
-`)
+`, openCodeSQLiteRowSizeLimit, openCodeRecentPartRowLimit)
 	if err != nil {
 		return fmt.Errorf("failed querying OpenCode sqlite parts %q: %s", dbPath, err)
 	}
@@ -516,11 +654,16 @@ ORDER BY time_created ASC, id ASC;
 		)
 
 		if err := rows.Scan(&id, &messageID, &sessionID, &data); err != nil {
-			return fmt.Errorf("failed scanning OpenCode sqlite part row: %s", err)
+			log.Extract(ctx).Debugf("skipping OpenCode sqlite part row: %s", err)
+			continue
 		}
 
 		if _, ok := messageIDs[messageID]; !ok {
 			continue
+		}
+
+		if err := aiSQLiteRead(ctx, id, sessionID, data); err != nil {
+			return err
 		}
 
 		var part openCodePart
@@ -571,6 +714,15 @@ func (g OpenCode) sessionHeartbeats(
 	)
 
 	for _, message := range messages {
+		if g.seenMessages != nil && message.info.ID != "" {
+			key := session.ID + "\x00" + message.info.ID
+			if g.seenMessages[key] {
+				continue
+			}
+
+			g.seenMessages[key] = true
+		}
+
 		messageTime := time.UnixMilli(message.info.Time.Created)
 
 		cwd := sessionCwd
@@ -579,12 +731,20 @@ func (g OpenCode) sessionHeartbeats(
 		}
 
 		if message.info.Tokens != nil {
-			tokens.CurrentInput = message.info.Tokens.Input
-			tokens.CurrentOutput = message.info.Tokens.Output
+			// OpenCode persists per-assistant-message usage. Accumulate it into the
+			// state expected by NewWithAITokens so a smaller later response is not
+			// mistaken for a counter reset.
+			tokens.CurrentInput = tokens.LastInput + max(message.info.Tokens.Input, 0) +
+				max(message.info.Tokens.Cache.Write, 0)
+			tokens.CurrentCachedInput = tokens.LastCachedInput + max(message.info.Tokens.Cache.Read, 0)
+			tokens.CurrentOutput = tokens.LastOutput + max(message.info.Tokens.Output, 0) +
+				max(message.info.Tokens.Reasoning, 0)
 		}
 
-		if message.info.Time.Created == 0 || (!g.After.IsZero() && messageTime.Before(g.After)) {
+		if message.info.Time.Created == 0 ||
+			(!g.After.IsZero() && !timestampAtOrAfterCutoff(messageTime, g.sessionAfter(session.ID))) {
 			tokens.LastInput = tokens.CurrentInput
+			tokens.LastCachedInput = tokens.CurrentCachedInput
 			tokens.LastOutput = tokens.CurrentOutput
 
 			continue
@@ -592,17 +752,34 @@ func (g OpenCode) sessionHeartbeats(
 
 		switch message.info.Role {
 		case "user":
-			if hb := g.userHeartbeat(sessionEntity, session.Version, session.ID, cwd, message, tokens); hb != nil {
+			if hb := g.userHeartbeat(
+				sessionEntity,
+				session.Version,
+				message.info.ModelID,
+				session.ID,
+				cwd,
+				message,
+				tokens,
+			); hb != nil {
 				heartbeats = append(heartbeats, *hb)
 			}
 		case "assistant":
-			if hb := g.assistantHeartbeat(sessionEntity, session.Version, session.ID, cwd, message, tokens); hb != nil {
+			if hb := g.assistantHeartbeat(
+				sessionEntity,
+				session.Version,
+				message.info.ModelID,
+				session.ID,
+				cwd,
+				message,
+				tokens,
+			); hb != nil {
 				heartbeats = append(heartbeats, *hb)
 			}
 
 			for _, part := range message.parts {
 				hbs := g.toolHeartbeats(
 					session.Version,
+					message.info.ModelID,
 					session.ID,
 					cwd,
 					messageTime,
@@ -615,6 +792,7 @@ func (g OpenCode) sessionHeartbeats(
 		}
 
 		tokens.LastInput = tokens.CurrentInput
+		tokens.LastCachedInput = tokens.CurrentCachedInput
 		tokens.LastOutput = tokens.CurrentOutput
 	}
 
@@ -627,12 +805,24 @@ func openCodeDataRoots(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("failed to find user home dir: %s", err)
 	}
 
-	return []string{
+	if root := os.Getenv("OPENCODE_DATA_DIR"); root != "" {
+		return []string{root}, nil
+	}
+
+	roots := []string{
 		filepath.Join(home, ".local", "share", "opencode"),
 		filepath.Join(home, "Library", "Application Support", "opencode"),
 		filepath.Join(home, "AppData", "Local", "opencode"),
 		filepath.Join(home, "AppData", "Roaming", "opencode"),
-	}, nil
+	}
+	if root := os.Getenv("XDG_DATA_HOME"); root != "" {
+		candidate := filepath.Join(root, "opencode")
+		if !slices.Contains(roots, candidate) {
+			roots = append([]string{candidate}, roots...)
+		}
+	}
+
+	return roots, nil
 }
 
 func openCodeSQLiteDBPaths(ctx context.Context) ([]string, error) {
@@ -644,7 +834,7 @@ func openCodeSQLiteDBPaths(ctx context.Context) ([]string, error) {
 	var dbPaths []string
 
 	for _, dataRoot := range dataRoots {
-		entries, err := filepath.Glob(filepath.Join(dataRoot, "opencode*.db"))
+		entries, err := filepath.Glob(filepath.Join(dataRoot, envOrDefault("OPENCODE_DB_PREFIX", "opencode")+"*.db"))
 		if err != nil {
 			return nil, fmt.Errorf("failed globbing OpenCode sqlite dbs in %q: %s", dataRoot, err)
 		}
@@ -660,16 +850,7 @@ func openCodeSQLiteDBPaths(ctx context.Context) ([]string, error) {
 }
 
 func openCodeSQLiteDBModifiedAfter(dbPath string, after time.Time) bool {
-	if after.IsZero() {
-		return true
-	}
-
-	info, err := os.Stat(dbPath)
-	if err != nil {
-		return false
-	}
-
-	return info.ModTime().After(after)
+	return aiSQLiteModifiedAfter(dbPath, after)
 }
 
 func (g OpenCode) afterUnixMilli() int64 {
@@ -722,7 +903,10 @@ func (OpenCode) readParts(baseStorageDir string, messageID string) ([]openCodePa
 		return nil, fmt.Errorf("failed to read OpenCode parts directory %q: %s", partsDir, err)
 	}
 
-	var parts []openCodePart
+	var (
+		parts    []openCodePart
+		parseErr error
+	)
 
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
@@ -733,12 +917,14 @@ func (OpenCode) readParts(baseStorageDir string, messageID string) ([]openCodePa
 		// nolint:gosec // Reads a part file discovered inside the trusted OpenCode storage directory.
 		contents, err := os.ReadFile(filepath.Clean(partPath))
 		if err != nil {
-			return nil, fmt.Errorf("failed to read OpenCode part %q: %s", partPath, err)
+			parseErr = errors.Join(parseErr, fmt.Errorf("failed to read OpenCode part %q: %s", partPath, err))
+			continue
 		}
 
 		var part openCodePart
 		if err := json.Unmarshal(contents, &part); err != nil {
-			return nil, fmt.Errorf("failed to parse OpenCode part %q: %s", partPath, err)
+			parseErr = errors.Join(parseErr, fmt.Errorf("failed to parse OpenCode part %q: %s", partPath, err))
+			continue
 		}
 
 		parts = append(parts, part)
@@ -748,12 +934,13 @@ func (OpenCode) readParts(baseStorageDir string, messageID string) ([]openCodePa
 		return strings.Compare(a.ID, b.ID)
 	})
 
-	return parts, nil
+	return parts, parseErr
 }
 
 func (g OpenCode) userHeartbeat(
 	entity string,
 	version string,
+	model string,
 	sessionID string,
 	cwd string,
 	message openCodeMessageWithParts,
@@ -794,8 +981,9 @@ func (g OpenCode) userHeartbeat(
 		false,
 		"",
 		cwd,
-		float64(time.UnixMilli(message.info.Time.Created).Unix()),
-		aiUserAgent(entity, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, version)),
+		heartbeatTimestamp(time.UnixMilli(message.info.Time.Created)),
+		aiUserAgentWithModelAndEditor(
+			entity, g.UserAgents, g.FallbackUserAgent, model, "", "opencode-cli/"+unknownIfEmpty(version)),
 	)
 	h.AIPromptLength = prompt
 
@@ -805,6 +993,7 @@ func (g OpenCode) userHeartbeat(
 func (g OpenCode) assistantHeartbeat(
 	entity string,
 	version string,
+	model string,
 	sessionID string,
 	cwd string,
 	message openCodeMessageWithParts,
@@ -848,8 +1037,9 @@ func (g OpenCode) assistantHeartbeat(
 		false,
 		"",
 		cwd,
-		float64(time.UnixMilli(message.info.Time.Created).Unix()),
-		aiUserAgent(entity, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, version)),
+		heartbeatTimestamp(time.UnixMilli(message.info.Time.Created)),
+		aiUserAgentWithModelAndEditor(
+			entity, g.UserAgents, g.FallbackUserAgent, model, "", "opencode-cli/"+unknownIfEmpty(version)),
 	)
 
 	return &h
@@ -857,6 +1047,7 @@ func (g OpenCode) assistantHeartbeat(
 
 func (g OpenCode) toolHeartbeats(
 	version string,
+	model string,
 	sessionID string,
 	cwd string,
 	timestamp time.Time,
@@ -866,29 +1057,38 @@ func (g OpenCode) toolHeartbeats(
 		return nil
 	}
 
+	if part.Tool == "edit" || part.Tool == "apply_patch" {
+		if hh := g.v2ToolFileHeartbeats(version, model, sessionID, cwd, timestamp, *part.State); len(hh) > 0 {
+			return hh
+		}
+	}
+
 	switch part.Tool {
 	case "edit":
-		return g.editHeartbeats(version, sessionID, cwd, timestamp, *part.State)
+		return g.editHeartbeats(version, model, sessionID, cwd, timestamp, *part.State)
 	case "write":
-		return g.writeHeartbeats(version, sessionID, cwd, timestamp, *part.State)
+		return g.writeHeartbeats(version, model, sessionID, cwd, timestamp, *part.State)
 	case "apply_patch":
-		return g.applyPatchHeartbeats(version, sessionID, cwd, timestamp, *part.State)
+		return g.applyPatchHeartbeats(version, model, sessionID, cwd, timestamp, *part.State)
 	default:
 		return nil
 	}
 }
 
-func (g OpenCode) editHeartbeats(version string, sessionID string, cwd string, timestamp time.Time, state struct {
-	Status   string          `json:"status"`
-	Input    json.RawMessage `json:"input"`
-	Metadata json.RawMessage `json:"metadata"`
-}) Heartbeats {
+func (g OpenCode) editHeartbeats(
+	version string,
+	model string,
+	sessionID string,
+	cwd string,
+	timestamp time.Time,
+	state openCodeToolState,
+) Heartbeats {
 	var input openCodeEditInput
 	if err := json.Unmarshal(state.Input, &input); err != nil {
 		return nil
 	}
 
-	filePath := openCodeResolvePath(cwd, input.FilePath)
+	filePath := openCodeResolvePath(cwd, firstNonEmptyString(input.Path, input.FilePath))
 	lineChanges := countStringLines(input.NewString) - countStringLines(input.OldString)
 
 	var metadata openCodeEditMetadata
@@ -905,20 +1105,23 @@ func (g OpenCode) editHeartbeats(version string, sessionID string, cwd string, t
 		)
 	}
 
-	return Heartbeats{g.fileHeartbeat(version, sessionID, filePath, lineChanges, timestamp)}
+	return Heartbeats{g.fileHeartbeat(version, model, sessionID, filePath, lineChanges, timestamp)}
 }
 
-func (g OpenCode) writeHeartbeats(version string, sessionID string, cwd string, timestamp time.Time, state struct {
-	Status   string          `json:"status"`
-	Input    json.RawMessage `json:"input"`
-	Metadata json.RawMessage `json:"metadata"`
-}) Heartbeats {
+func (g OpenCode) writeHeartbeats(
+	version string,
+	model string,
+	sessionID string,
+	cwd string,
+	timestamp time.Time,
+	state openCodeToolState,
+) Heartbeats {
 	var input openCodeWriteInput
 	if err := json.Unmarshal(state.Input, &input); err != nil {
 		return nil
 	}
 
-	filePath := openCodeResolvePath(cwd, input.FilePath)
+	filePath := openCodeResolvePath(cwd, firstNonEmptyString(input.Path, input.FilePath))
 
 	lineChanges := 0
 
@@ -927,14 +1130,28 @@ func (g OpenCode) writeHeartbeats(version string, sessionID string, cwd string, 
 		lineChanges = countStringLines(input.Content)
 	}
 
-	return Heartbeats{g.fileHeartbeat(version, sessionID, filePath, lineChanges, timestamp)}
+	var output struct {
+		Existed bool   `json:"existed"`
+		Target  string `json:"target"`
+	}
+	if json.Unmarshal(state.Structured, &output) == nil {
+		filePath = firstNonEmptyString(openCodeResolvePath(cwd, output.Target), filePath)
+		if output.Existed {
+			lineChanges = 0
+		}
+	}
+
+	return Heartbeats{g.fileHeartbeat(version, model, sessionID, filePath, lineChanges, timestamp)}
 }
 
-func (g OpenCode) applyPatchHeartbeats(version string, sessionID string, cwd string, timestamp time.Time, state struct {
-	Status   string          `json:"status"`
-	Input    json.RawMessage `json:"input"`
-	Metadata json.RawMessage `json:"metadata"`
-}) Heartbeats {
+func (g OpenCode) applyPatchHeartbeats(
+	version string,
+	model string,
+	sessionID string,
+	cwd string,
+	timestamp time.Time,
+	state openCodeToolState,
+) Heartbeats {
 	var metadata openCodeApplyPatchMetadata
 	if err := json.Unmarshal(state.Metadata, &metadata); err == nil && len(metadata.Files) > 0 {
 		var heartbeats Heartbeats
@@ -943,11 +1160,13 @@ func (g OpenCode) applyPatchHeartbeats(version string, sessionID string, cwd str
 			filePath := openCodeResolvePath(cwd, file.FilePath)
 			heartbeats = append(heartbeats, g.fileHeartbeat(
 				version,
+				model,
 				sessionID,
 				filePath,
 				file.Additions-file.Deletions,
 				timestamp,
 			))
+			heartbeats[len(heartbeats)-1].IsUnsavedEntity = file.Type == "delete"
 		}
 
 		return heartbeats
@@ -958,11 +1177,12 @@ func (g OpenCode) applyPatchHeartbeats(version string, sessionID string, cwd str
 		return nil
 	}
 
-	return g.patchHeartbeats(version, sessionID, cwd, input.PatchText, timestamp)
+	return g.patchHeartbeats(version, model, sessionID, cwd, input.PatchText, timestamp)
 }
 
 func (g OpenCode) patchHeartbeats(
 	version string,
+	model string,
 	sessionID string,
 	cwd string,
 	patchText string,
@@ -972,6 +1192,7 @@ func (g OpenCode) patchHeartbeats(
 
 	var (
 		currentFile string
+		isDeleted   bool
 		additions   int
 		deletions   int
 	)
@@ -979,20 +1200,27 @@ func (g OpenCode) patchHeartbeats(
 	lines := strings.Split(patchText, "\n")
 	for _, line := range lines {
 		switch {
+		case strings.HasPrefix(line, "*** Move to: "):
+			if currentFile != "" {
+				currentFile = openCodeResolvePath(cwd, strings.TrimPrefix(line, "*** Move to: "))
+			}
 		case strings.HasPrefix(line, "*** Update File: "),
 			strings.HasPrefix(line, "*** Add File: "),
 			strings.HasPrefix(line, "*** Delete File: "):
 			if currentFile != "" {
 				heartbeats = append(heartbeats, g.fileHeartbeat(
 					version,
+					model,
 					sessionID,
 					currentFile,
 					additions-deletions,
 					timestamp,
 				))
+				heartbeats[len(heartbeats)-1].IsUnsavedEntity = isDeleted
 			}
 
 			currentFile = openCodePatchFilePath(cwd, line)
+			isDeleted = strings.HasPrefix(line, "*** Delete File: ")
 			additions = 0
 			deletions = 0
 		case currentFile != "" && strings.HasPrefix(line, "+"):
@@ -1005,11 +1233,13 @@ func (g OpenCode) patchHeartbeats(
 	if currentFile != "" {
 		heartbeats = append(heartbeats, g.fileHeartbeat(
 			version,
+			model,
 			sessionID,
 			currentFile,
 			additions-deletions,
 			timestamp,
 		))
+		heartbeats[len(heartbeats)-1].IsUnsavedEntity = isDeleted
 	}
 
 	return heartbeats
@@ -1017,6 +1247,7 @@ func (g OpenCode) patchHeartbeats(
 
 func (g OpenCode) fileHeartbeat(
 	version string,
+	model string,
 	sessionID string,
 	filePath string,
 	lineChanges int,
@@ -1043,8 +1274,9 @@ func (g OpenCode) fileHeartbeat(
 		false,
 		"",
 		"",
-		float64(timestamp.Unix()),
-		aiUserAgent(filePath, g.UserAgents, g.FallbackUserAgent, aiPlugin(g, version)),
+		heartbeatTimestamp(timestamp),
+		aiUserAgentWithModelAndEditor(
+			filePath, g.UserAgents, g.FallbackUserAgent, model, "", "opencode-cli/"+unknownIfEmpty(version)),
 	)
 }
 
@@ -1081,4 +1313,8 @@ func openCodeResolvePath(base string, filePath string) string {
 // Name returns its id.
 func (OpenCode) Name() string {
 	return "OpenCode"
+}
+
+func (g OpenCode) sessionAfter(id string) time.Time {
+	return (ParserConfig{After: g.After, checkpoint: g.checkpoint}).sessionAfter(id)
 }

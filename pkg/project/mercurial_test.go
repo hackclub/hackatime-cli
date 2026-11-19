@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/project"
+	"github.com/hackclub/hackatime-cli/pkg/project"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,11 +22,10 @@ func TestMercurial_Detect(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, detected)
-	assert.Contains(t, result.Folder, fp)
 	assert.Equal(t, project.Result{
 		Project: "wakatime-cli",
 		Branch:  "billing",
-		Folder:  result.Folder,
+		Folder:  filepath.Join(fp, "wakatime-cli"),
 	}, result)
 }
 
@@ -41,11 +40,10 @@ func TestMercurial_Detect_BranchWithSlash(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, detected)
-	assert.Contains(t, result.Folder, fp)
 	assert.Equal(t, project.Result{
 		Project: "wakatime-cli",
 		Branch:  "feature/billing",
-		Folder:  result.Folder,
+		Folder:  filepath.Join(fp, "wakatime-cli"),
 	}, result)
 }
 
@@ -60,11 +58,10 @@ func TestMercurial_Detect_NoBranch(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, detected)
-	assert.Contains(t, result.Folder, fp)
 	assert.Equal(t, project.Result{
 		Project: "wakatime-cli",
 		Branch:  "default",
-		Folder:  result.Folder,
+		Folder:  filepath.Join(fp, "wakatime-cli"),
 	}, result)
 }
 

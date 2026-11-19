@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
-	"github.com/wakatime/wakatime-cli/pkg/file"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/file"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 // Config defines language detection options.
@@ -62,6 +63,26 @@ func WithDetection(config Config) heartbeat.HandleOption {
 // Detect detects the language of a specific file. If guessLanguage is true,
 // Chroma will be used to detect a language from the file contents.
 func Detect(ctx context.Context, fp string, guessLanguage bool) (heartbeat.Language, error) {
+	return detectLanguage(ctx, detect, fp, guessLanguage)
+}
+
+type detector func(ctx context.Context, fp string, guessLanguage bool) (heartbeat.Language, error)
+
+func detectLanguage(ctx context.Context, detect detector, fp string, guessLanguage bool) (
+	language heartbeat.Language, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Extract(ctx).Errorf("panicked: %v. Stack: %s", r, string(debug.Stack()))
+
+			language = heartbeat.LanguageUnknown
+			err = fmt.Errorf("panicked: %v", r)
+		}
+	}()
+
+	return detect(ctx, fp, guessLanguage)
+}
+
+func detect(ctx context.Context, fp string, guessLanguage bool) (heartbeat.Language, error) {
 	if language, ok := detectSpecialCases(ctx, fp); ok {
 		return language, nil
 	}

@@ -1,9 +1,10 @@
 package xml_test
 
 import (
+	"strings"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/xml"
+	"github.com/hackclub/hackatime-cli/pkg/xml"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -24,6 +25,10 @@ func TestXML_MatchString(t *testing.T) {
 		},
 		"html": {
 			Text:     "<html>",
+			Expected: false,
+		},
+		"tag after first kilobyte": {
+			Text:     strings.Repeat("a", 1001) + "<html>abc</html>",
 			Expected: false,
 		},
 	}

@@ -19,12 +19,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
-	"github.com/wakatime/wakatime-cli/pkg/project"
-	"github.com/wakatime/wakatime-cli/pkg/version"
-	"github.com/wakatime/wakatime-cli/pkg/windows"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
+	"github.com/hackclub/hackatime-cli/pkg/project"
+	"github.com/hackclub/hackatime-cli/pkg/version"
+	"github.com/hackclub/hackatime-cli/pkg/windows"
 
 	"github.com/gandarez/go-realpath"
 	"github.com/stretchr/testify/assert"
@@ -1937,7 +1937,7 @@ func TestFileExperts(t *testing.T) {
 			expectedBody := fmt.Sprintf(
 				string(expectedBodyTpl),
 				entityPath,
-				"wakatime-cli",
+				"hackatime-cli",
 				subfolders,
 			)
 
@@ -2307,7 +2307,7 @@ func TestVersionVerbose(t *testing.T) {
 	out := runWakatimeCli(t, &bytes.Buffer{}, "--version", "--verbose")
 
 	assert.Regexp(t, regexp.MustCompile(fmt.Sprintf(
-		"wakatime-cli\n  Version: <local-build>\n  Commit: [0-9a-f]{7}\n  Built: [0-9-:T]{19} UTC\n  OS/Arch: %s/%s\n",
+		"hackatime-cli\n  Version: <local-build>\n  Commit: [0-9a-f]{7}\n  Built: [0-9-:T]{19} UTC\n  OS/Arch: %s/%s\n",
 		runtime.GOOS,
 		runtime.GOARCH,
 	)), out)
@@ -2342,7 +2342,7 @@ func TestMultipleRunners(t *testing.T) {
 }
 
 func binaryPath(t *testing.T) string {
-	filename := fmt.Sprintf("./build/wakatime-cli-%s-%s", runtime.GOOS, runtime.GOARCH)
+	filename := fmt.Sprintf("./build/hackatime-cli-%s-%s", runtime.GOOS, runtime.GOARCH)
 
 	switch runtime.GOOS {
 	case "darwin", "linux", "freebsd", "netbsd", "openbsd":

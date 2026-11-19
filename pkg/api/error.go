@@ -3,8 +3,8 @@ package api
 import (
 	"fmt"
 
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/wakaerror"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/wakaerror"
 
 	"go.uber.org/zap/zapcore"
 )
@@ -60,7 +60,7 @@ func (ErrAuth) ExitCode() int {
 
 // Message method to implement wakaerror.Error interface.
 func (e ErrAuth) Message() string {
-	return fmt.Sprintf("invalid api key... find yours at wakatime.com/api-key. %s", e.Err.Error())
+	return fmt.Sprintf("invalid api key... find yours at hackatime.hackclub.com/api-key. %s", e.Err.Error())
 }
 
 // SendDiagsOnErrors method to implement wakaerror.SendDiagsOnErrors interface.

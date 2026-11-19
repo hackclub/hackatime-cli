@@ -2,18 +2,19 @@ package offlinesync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
-	cmdapi "github.com/wakatime/wakatime-cli/cmd/api"
-	"github.com/wakatime/wakatime-cli/pkg/apikey"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
-	"github.com/wakatime/wakatime-cli/pkg/params"
-	"github.com/wakatime/wakatime-cli/pkg/ratelimit"
-	"github.com/wakatime/wakatime-cli/pkg/wakaerror"
+	cmdapi "github.com/hackclub/hackatime-cli/cmd/api"
+	"github.com/hackclub/hackatime-cli/pkg/apikey"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
+	"github.com/hackclub/hackatime-cli/pkg/params"
+	"github.com/hackclub/hackatime-cli/pkg/ratelimit"
+	"github.com/hackclub/hackatime-cli/pkg/wakaerror"
 
 	"github.com/spf13/viper"
 )
@@ -68,8 +69,9 @@ func run(ctx context.Context, v *viper.Viper) (int, error) {
 	}
 
 	if err = SyncOfflineActivity(ctx, v, queueFilepath); err != nil {
-		if errwaka, ok := err.(wakaerror.Error); ok {
-			return errwaka.ExitCode(), fmt.Errorf("offline sync failed: %s", errwaka.Message())
+		var errwaka wakaerror.Error
+		if errors.As(err, &errwaka) {
+			return errwaka.ExitCode(), fmt.Errorf("offline sync failed: %w", err)
 		}
 
 		return exitcode.ErrGeneric, fmt.Errorf(
@@ -93,13 +95,6 @@ func syncOfflineActivityLegacy(ctx context.Context, v *viper.Viper, queueFilepat
 	if !fileExists(queueFilepath) {
 		return nil
 	}
-
-	defer func() {
-		if err := os.Remove(queueFilepath); err != nil {
-			logger := log.Extract(ctx)
-			logger.Warnf("failed to delete legacy offline file: %s", err)
-		}
-	}()
 
 	offlineParams := params.LoadOfflineParams(ctx, v, params.FlagReadOrderFlagPrecedence)
 

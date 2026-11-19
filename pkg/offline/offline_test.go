@@ -2,6 +2,7 @@ package offline_test
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,12 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
 	"github.com/spf13/viper"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,6 +53,18 @@ func TestQueueFilepath(t *testing.T) {
 			assert.Equal(t, expected, queueFilepath)
 		})
 	}
+}
+
+func TestQueueFilepath_ConfiguredFile(t *testing.T) {
+	expected := filepath.Join(t.TempDir(), "queue.bdb")
+
+	v := viper.New()
+	v.Set("offline-queue-file", expected)
+
+	queueFilepath, err := offline.QueueFilepath(t.Context(), v)
+	require.NoError(t, err)
+
+	assert.Equal(t, expected, queueFilepath)
 }
 
 func TestWithQueue(t *testing.T) {
@@ -385,6 +397,30 @@ func TestWithQueue_HandleLeftovers(t *testing.T) {
 	assert.JSONEq(t, string(dataJs), stored[1].Heartbeat)
 }
 
+func TestWithQueue_BadRequestDoesNotRequeue(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "")
+	require.NoError(t, err)
+
+	defer f.Close()
+
+	handle := offline.WithQueue(f.Name())(func(_ context.Context, hh []heartbeat.Heartbeat) ([]heartbeat.Result, error) {
+		require.Len(t, hh, 1)
+
+		return []heartbeat.Result{{
+			Status: http.StatusBadRequest,
+			Errors: []string{"bad entity"},
+		}}, nil
+	})
+
+	results, err := handle(t.Context(), []heartbeat.Heartbeat{testHeartbeats()[0]})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	count, err := offline.CountHeartbeats(t.Context(), f.Name())
+	require.NoError(t, err)
+	assert.Zero(t, count)
+}
+
 func TestWithSync(t *testing.T) {
 	// setup
 	f, err := os.CreateTemp(t.TempDir(), "")
@@ -461,6 +497,52 @@ func TestWithSync(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, stored, 0)
+}
+
+func TestWithSync_OpenError(t *testing.T) {
+	handle := offline.WithSync(t.TempDir(), 1)(func(_ context.Context, _ []heartbeat.Heartbeat) ([]heartbeat.Result, error) {
+		t.Fatal("next handler should not be called")
+
+		return nil, nil
+	})
+
+	results, err := handle(t.Context(), nil)
+	require.Error(t, err)
+	assert.Nil(t, results)
+	assert.Contains(t, err.Error(), "failed to sync offline heartbeats")
+}
+
+func TestSync_RequeuesOnHandlerError(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "")
+	require.NoError(t, err)
+
+	defer f.Close()
+
+	db, err := bolt.Open(f.Name(), 0600, nil)
+	require.NoError(t, err)
+
+	dataGo, err := os.ReadFile("testdata/heartbeat_go.json")
+	require.NoError(t, err)
+
+	insertHeartbeatRecords(t, db, "heartbeats", []heartbeatRecord{{
+		ID:        "1592868367.219124-12-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true",
+		Heartbeat: string(dataGo),
+	}})
+	require.NoError(t, db.Close())
+
+	err = offline.Sync(t.Context(), f.Name(), 1)(
+		func(_ context.Context, hh []heartbeat.Heartbeat) ([]heartbeat.Result, error) {
+			require.Len(t, hh, 1)
+
+			return nil, errors.New("api unavailable")
+		},
+	)
+	require.EqualError(t, err, "api unavailable")
+
+	queued, err := offline.ReadHeartbeats(t.Context(), f.Name(), 10)
+	require.NoError(t, err)
+	require.Len(t, queued, 1)
+	assert.Equal(t, "/tmp/main.go", queued[0].Entity)
 }
 
 func TestSync_MultipleRequests(t *testing.T) {
@@ -548,7 +630,7 @@ func TestSync_MultipleRequests(t *testing.T) {
 
 	expectedCalls := int(math.Ceil(float64(totalHeartbeats) / float64(offline.SendLimit)))
 
-	assert.Eventually(t, func() bool { return numCalls == expectedCalls }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, expectedCalls, numCalls)
 }
 
 func TestSync_APIError(t *testing.T) {
@@ -590,8 +672,8 @@ func TestSync_APIError(t *testing.T) {
 		numCalls++
 
 		assert.Equal(t, []heartbeat.Heartbeat{
-			testHeartbeats()[0],
 			testHeartbeats()[1],
+			testHeartbeats()[0],
 		}, hh)
 
 		return nil, errors.New("failed")
@@ -629,7 +711,7 @@ func TestSync_APIError(t *testing.T) {
 	assert.Equal(t, "1592868386.079084-13-file-debugging-wakatime-summary-/tmp/main.py-false", stored[1].ID)
 	assert.JSONEq(t, string(dataPy), stored[1].Heartbeat)
 
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
 func TestSync_APIErrorBulkNested(t *testing.T) {
@@ -678,9 +760,9 @@ func TestSync_APIErrorBulkNested(t *testing.T) {
 		numCalls++
 
 		assert.Equal(t, []heartbeat.Heartbeat{
-			testHeartbeats()[0],
-			testHeartbeats()[1],
 			testHeartbeats()[2],
+			testHeartbeats()[1],
+			testHeartbeats()[0],
 		}, hh)
 
 		return []heartbeat.Result{
@@ -728,10 +810,10 @@ func TestSync_APIErrorBulkNested(t *testing.T) {
 	assert.Equal(t, "1592868386.079084-13-file-debugging-wakatime-summary-/tmp/main.py-false", stored[0].ID)
 	assert.JSONEq(t, string(dataPy), stored[0].Heartbeat)
 
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
-func TestSync_InvalidResults(t *testing.T) {
+func TestSync_StopsOnInvalidResults(t *testing.T) {
 	// setup
 	f, err := os.CreateTemp(t.TempDir(), "")
 	require.NoError(t, err)
@@ -776,44 +858,28 @@ func TestSync_InvalidResults(t *testing.T) {
 	err = syncFn(func(_ context.Context, hh []heartbeat.Heartbeat) ([]heartbeat.Result, error) {
 		numCalls++
 
-		// first request
-		if numCalls == 1 {
-			require.Len(t, hh, 3)
-			assert.Equal(t, []heartbeat.Heartbeat{
-				testHeartbeats()[0],
-				testHeartbeats()[1],
-				testHeartbeats()[2],
-			}, hh)
-
-			return []heartbeat.Result{
-				{
-					Status: 201,
-					ID:     "D0E1F2A3-B4C5-4678-D012-345678JKLMNO",
-				},
-				// any non 201/202/400 status results will be retried.
-				{
-					Status: 429,
-					Errors: []string{"Too many heartbeats"},
-					ID:     "E1F2A3B4-C5D6-4789-E123-456789KLMNOP",
-				},
-				// 400 status results will be discarded
-				{
-					Status: 400,
-					ID:     "F2A3B4C5-D6E7-4890-F234-567890LMNOPQ",
-				},
-			}, nil
-		}
-
-		// second request: assert retry of 429 result
-		require.Len(t, hh, 1)
+		require.Len(t, hh, 3)
 		assert.Equal(t, []heartbeat.Heartbeat{
+			testHeartbeats()[2],
 			testHeartbeats()[1],
+			testHeartbeats()[0],
 		}, hh)
 
 		return []heartbeat.Result{
 			{
 				Status: 201,
-				ID:     "A3B4C5D6-E7F8-4901-A345-678901MNOPQR",
+				ID:     "D0E1F2A3-B4C5-4678-D012-345678JKLMNO",
+			},
+			// Rate-limited heartbeats stay queued for a later sync.
+			{
+				Status: 429,
+				Errors: []string{"Too many heartbeats"},
+				ID:     "E1F2A3B4-C5D6-4789-E123-456789KLMNOP",
+			},
+			// Bad request heartbeats are discarded.
+			{
+				Status: 400,
+				ID:     "F2A3B4C5-D6E7-4890-F234-567890LMNOPQ",
 			},
 		}, nil
 	})
@@ -842,9 +908,11 @@ func TestSync_InvalidResults(t *testing.T) {
 	err = db.Close()
 	require.NoError(t, err)
 
-	require.Len(t, stored, 0)
+	require.Len(t, stored, 1)
+	assert.Equal(t, "1592868386.079084-13-file-debugging-wakatime-summary-/tmp/main.py-false", stored[0].ID)
+	assert.JSONEq(t, string(dataPy), stored[0].Heartbeat)
 
-	assert.Eventually(t, func() bool { return numCalls == 2 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
 func TestSync_SyncLimit(t *testing.T) {
@@ -885,7 +953,7 @@ func TestSync_SyncLimit(t *testing.T) {
 	err = syncFn(func(_ context.Context, hh []heartbeat.Heartbeat) ([]heartbeat.Result, error) {
 		numCalls++
 
-		assert.Len(t, hh, 1)
+		assert.Equal(t, []heartbeat.Heartbeat{testHeartbeats()[1]}, hh)
 
 		return []heartbeat.Result{
 			{
@@ -921,10 +989,10 @@ func TestSync_SyncLimit(t *testing.T) {
 
 	require.Len(t, stored, 1)
 
-	assert.Equal(t, "1592868386.079084-file-debugging-wakatime-summary-/tmp/main.py-false", stored[0].ID)
-	assert.JSONEq(t, string(dataPy), stored[0].Heartbeat)
+	assert.Equal(t, "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true", stored[0].ID)
+	assert.JSONEq(t, string(dataGo), stored[0].Heartbeat)
 
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
 func TestSync_SyncLimitAcrossMultipleBatches(t *testing.T) {
@@ -1085,7 +1153,7 @@ func TestSync_SyncUnlimited(t *testing.T) {
 
 	require.Len(t, stored, 0)
 
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
 func TestSync_DeletesDuplicates(t *testing.T) {
@@ -1282,6 +1350,92 @@ func TestCountHeartbeats_Empty(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, count, 0)
+}
+
+func TestCountHeartbeats_CorruptDBReturnsErrOpenDB(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "")
+	require.NoError(t, err)
+
+	queuePath := f.Name()
+	require.NoError(t, f.Close())
+
+	db, err := bolt.Open(queuePath, 0600, nil)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	corruptBoltPageFlags(t, queuePath, 3, 0x0a)
+
+	count, err := offline.CountHeartbeats(t.Context(), queuePath)
+
+	var erropen offline.ErrOpenDB
+	require.ErrorAs(t, err, &erropen)
+	assert.Zero(t, count)
+	assert.True(t, erropen.Reset)
+	assert.FileExists(t, erropen.BackupFilepath)
+	assert.NoFileExists(t, queuePath)
+	assert.Contains(t, err.Error(), "panicked:")
+	assert.Contains(t, err.Error(), "page 3")
+
+	count, err = offline.CountHeartbeats(t.Context(), queuePath)
+	require.NoError(t, err)
+	assert.Zero(t, count)
+	assert.FileExists(t, queuePath)
+}
+
+func TestCountHeartbeats_InvalidDBResetsQueue(t *testing.T) {
+	queuePath := filepath.Join(t.TempDir(), "offline_heartbeats.bdb")
+	require.NoError(t, os.WriteFile(queuePath, []byte("not a bolt db"), 0600))
+
+	count, err := offline.CountHeartbeats(t.Context(), queuePath)
+
+	var erropen offline.ErrOpenDB
+	require.ErrorAs(t, err, &erropen)
+	assert.Zero(t, count)
+	assert.True(t, erropen.Reset)
+	assert.FileExists(t, erropen.BackupFilepath)
+	assert.NoFileExists(t, queuePath)
+
+	count, err = offline.CountHeartbeats(t.Context(), queuePath)
+	require.NoError(t, err)
+	assert.Zero(t, count)
+	assert.FileExists(t, queuePath)
+}
+
+func TestWithQueue_CorruptDBResetsAndSavesHeartbeats(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "")
+	require.NoError(t, err)
+
+	queuePath := f.Name()
+	require.NoError(t, f.Close())
+
+	db, err := bolt.Open(queuePath, 0600, nil)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	corruptBoltPageFlags(t, queuePath, 3, 0x0a)
+
+	h := heartbeat.Heartbeat{
+		Entity:     "/tmp/main.go",
+		EntityType: heartbeat.FileType,
+		Time:       1,
+		UserAgent:  "wakatime/test",
+	}
+
+	handle := offline.WithQueue(queuePath)(func(context.Context, []heartbeat.Heartbeat) ([]heartbeat.Result, error) {
+		return nil, errors.New("api unavailable")
+	})
+
+	_, err = handle(t.Context(), []heartbeat.Heartbeat{h})
+	require.EqualError(t, err, "api unavailable")
+
+	count, err := offline.CountHeartbeats(t.Context(), queuePath)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	hh, err := offline.ReadHeartbeats(t.Context(), queuePath, 1)
+	require.NoError(t, err)
+	require.Len(t, hh, 1)
+	assert.Equal(t, h.ID(), hh[0].ID())
 }
 
 func TestReadHeartbeats(t *testing.T) {
@@ -1481,9 +1635,10 @@ func TestQueue_PopMany(t *testing.T) {
 	require.NoError(t, err)
 
 	// check
-	assert.Len(t, hh, 2)
-	assert.Contains(t, hh, testHeartbeats()[0])
-	assert.Contains(t, hh, testHeartbeats()[1])
+	assert.Equal(t, []heartbeat.Heartbeat{
+		testHeartbeats()[2],
+		testHeartbeats()[1],
+	}, hh)
 
 	var stored []heartbeatRecord
 
@@ -1502,8 +1657,8 @@ func TestQueue_PopMany(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Len(t, stored, 1)
-	assert.Equal(t, "1592868394.084354-file-building-wakatime-todaygoal-/tmp/main.js-false", stored[0].ID)
-	assert.JSONEq(t, string(dataJs), stored[0].Heartbeat)
+	assert.Equal(t, "1592868367.219124-file-coding-wakatime-cli-heartbeat-/tmp/main.go-true", stored[0].ID)
+	assert.JSONEq(t, string(dataGo), stored[0].Heartbeat)
 }
 
 func TestQueue_PushMany(t *testing.T) {
@@ -1587,15 +1742,16 @@ func TestQueue_PushMany_PreservesAITokensAndSession(t *testing.T) {
 	q.Bucket = "test_bucket"
 
 	expected := heartbeat.Heartbeat{
-		AISession:      "session-123",
-		AIOutputTokens: 17,
-		Category:       heartbeat.AICodingCategory.String(),
-		Entity:         "Claude session",
-		EntityType:     heartbeat.AppType,
-		IsWrite:        heartbeat.PointerTo(false),
-		AIPromptLength: 42,
-		Time:           1770000000,
-		UserAgent:      "Claude/2.1.45 plugin/0.0.1",
+		AISession:           "session-123",
+		AICachedInputTokens: 23,
+		AIOutputTokens:      17,
+		Category:            heartbeat.AICodingCategory.String(),
+		Entity:              "Claude session",
+		EntityType:          heartbeat.AppType,
+		IsWrite:             heartbeat.PointerTo(false),
+		AIPromptLength:      42,
+		Time:                1770000000,
+		UserAgent:           "Claude/2.1.45 plugin/0.0.1",
 	}
 
 	require.NoError(t, q.PushMany([]heartbeat.Heartbeat{expected}))
@@ -1946,4 +2102,23 @@ func insertHeartbeatRecord(t *testing.T, db *bolt.DB, bucket string, h heartbeat
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func corruptBoltPageFlags(t *testing.T, path string, pageID uint64, flags uint16) {
+	t.Helper()
+
+	f, err := os.OpenFile(path, os.O_WRONLY, 0600)
+	require.NoError(t, err)
+
+	defer func() {
+		require.NoError(t, f.Close())
+	}()
+
+	var data [2]byte
+	binary.LittleEndian.PutUint16(data[:], flags)
+
+	offset := int64(pageID)*int64(os.Getpagesize()) + 8
+	n, err := f.WriteAt(data[:], offset)
+	require.NoError(t, err)
+	require.Equal(t, len(data), n)
 }

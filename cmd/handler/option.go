@@ -1,16 +1,17 @@
 package handler
 
 import (
-	"github.com/wakatime/wakatime-cli/pkg/apikey"
-	"github.com/wakatime/wakatime-cli/pkg/deps"
-	"github.com/wakatime/wakatime-cli/pkg/fileexperts"
-	"github.com/wakatime/wakatime-cli/pkg/filestats"
-	"github.com/wakatime/wakatime-cli/pkg/filter"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/language"
-	"github.com/wakatime/wakatime-cli/pkg/params"
-	"github.com/wakatime/wakatime-cli/pkg/project"
-	"github.com/wakatime/wakatime-cli/pkg/remote"
+	"github.com/hackclub/hackatime-cli/pkg/ai"
+	"github.com/hackclub/hackatime-cli/pkg/apikey"
+	"github.com/hackclub/hackatime-cli/pkg/deps"
+	"github.com/hackclub/hackatime-cli/pkg/fileexperts"
+	"github.com/hackclub/hackatime-cli/pkg/filestats"
+	"github.com/hackclub/hackatime-cli/pkg/filter"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/language"
+	"github.com/hackclub/hackatime-cli/pkg/params"
+	"github.com/hackclub/hackatime-cli/pkg/project"
+	"github.com/hackclub/hackatime-cli/pkg/remote"
 )
 
 // Preprocessor is a function used to preprocess heartbeat parameters.
@@ -141,5 +142,15 @@ func WithFileExpertsValidation() Preprocessor {
 func WithRemoteCleanup() Preprocessor {
 	return func(_ params.Params) heartbeat.HandleOption {
 		return remote.WithCleanup()
+	}
+}
+
+// WithAIFiltering excludes AI file heartbeats before paths are sanitized.
+func WithAIFiltering() Preprocessor {
+	return func(p params.Params) heartbeat.HandleOption {
+		return ai.WithFiltering(ai.Config{
+			SyncDisabled: p.AI.SyncDisabled,
+			Exclude:      p.AI.Exclude,
+		})
 	}
 }

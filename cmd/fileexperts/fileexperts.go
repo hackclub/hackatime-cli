@@ -2,17 +2,18 @@ package fileexperts
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	apicmd "github.com/wakatime/wakatime-cli/cmd/api"
-	"github.com/wakatime/wakatime-cli/cmd/handler"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/fileexperts"
-	"github.com/wakatime/wakatime-cli/pkg/filter"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/params"
-	"github.com/wakatime/wakatime-cli/pkg/wakaerror"
+	apicmd "github.com/hackclub/hackatime-cli/cmd/api"
+	"github.com/hackclub/hackatime-cli/cmd/handler"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/fileexperts"
+	"github.com/hackclub/hackatime-cli/pkg/filter"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/params"
+	"github.com/hackclub/hackatime-cli/pkg/wakaerror"
 
 	"github.com/spf13/viper"
 )
@@ -21,7 +22,8 @@ import (
 func Run(ctx context.Context, v *viper.Viper) (int, error) {
 	output, err := FileExperts(ctx, v)
 	if err != nil {
-		if errwaka, ok := err.(wakaerror.Error); ok {
+		var errwaka wakaerror.Error
+		if errors.As(err, &errwaka) {
 			return errwaka.ExitCode(), fmt.Errorf("file experts fetch failed: %s", errwaka.Message())
 		}
 

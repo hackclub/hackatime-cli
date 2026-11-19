@@ -7,13 +7,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
+
+// claudeTaskOutputPathPattern matches Claude Code's per-session sub-agent task
+// output files, e.g. /private/tmp/claude-501/-Users-foo-bar/<session-uuid>/tasks/<id>.output.
+// These are internal scratch artifacts produced by the Task tool, not user code,
+// so we ignore them when emitting file heartbeats. Paths are normalized to forward
+// slashes before matching so the same pattern works on Windows.
+var claudeTaskOutputPathPattern = regexp.MustCompile(`(?:^|/)claude-\d+/(?:[^/]+/)+tasks/[^/]+\.output$`)
 
 // Claude contains params for detecting heartbeats from Claude transcripts.
 type Claude ParserConfig
@@ -30,6 +38,8 @@ type (
 	claudeMessage struct {
 		ID      string                   `json:"id"`
 		Role    string                   `json:"role"`
+		Model   string                   `json:"model"`
+		Effort  string                   `json:"effort"`
 		Usage   *claudeUsage             `json:"usage"`
 		Content claudeMessageContentList `json:"content"`
 	}
@@ -46,6 +56,13 @@ type (
 		OldLines int `json:"oldLines"`
 	}
 
+	claudeBashEditDiff struct {
+		Files []struct {
+			FilePath string            `json:"filePath"`
+			Hunks    []structuredPatch `json:"hunks"`
+		} `json:"files"`
+	}
+
 	contentValue struct {
 		String *string
 		Array  *[]json.RawMessage
@@ -57,18 +74,19 @@ type (
 	}
 
 	toolUseResult struct {
-		Type            *string            `json:"type"`
-		File            *toolUseResultFile `json:"file"`
-		Content         *contentValue      `json:"content"`
-		Stdout          *contentValue      `json:"stdout"`
-		Stderr          *contentValue      `json:"stderr"`
-		Result          *contentValue      `json:"result"`
-		CodeText        *contentValue      `json:"codeText"`
-		FilePath        *string            `json:"filePath"`
-		OriginalFile    *string            `json:"originalFile"`
-		OldString       *string            `json:"oldString"`
-		NewString       *string            `json:"newString"`
-		StructuredPatch *[]structuredPatch `json:"structuredPatch"`
+		Type            *string             `json:"type"`
+		File            *toolUseResultFile  `json:"file"`
+		Content         *contentValue       `json:"content"`
+		Stdout          *contentValue       `json:"stdout"`
+		Stderr          *contentValue       `json:"stderr"`
+		Result          *contentValue       `json:"result"`
+		CodeText        *contentValue       `json:"codeText"`
+		FilePath        *string             `json:"filePath"`
+		OriginalFile    *string             `json:"originalFile"`
+		OldString       *string             `json:"oldString"`
+		NewString       *string             `json:"newString"`
+		StructuredPatch *[]structuredPatch  `json:"structuredPatch"`
+		BashEditDiff    *claudeBashEditDiff `json:"bashEditDiff"`
 		Raw             map[string]json.RawMessage
 	}
 
@@ -104,11 +122,28 @@ type (
 	// so that streaming duplicates (same message.id logged multiple times)
 	// replace rather than accumulate.
 	claudeLastMessage struct {
-		ID           string
-		InputTokens  int64
-		OutputTokens int64
+		ID                string
+		InputTokens       int64
+		CachedInputTokens int64
+		OutputTokens      int64
 	}
 )
+
+func (m *claudeMessage) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := claudeJSONUnmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	claudeDecodeField(raw, "id", &m.ID)
+	claudeDecodeField(raw, "role", &m.Role)
+	claudeDecodeField(raw, "model", &m.Model)
+	claudeDecodeField(raw, "effort", &m.Effort)
+	claudeDecodeField(raw, "usage", &m.Usage)
+	claudeDecodeField(raw, "content", &m.Content)
+
+	return nil
+}
 
 func (v *contentValue) UnmarshalJSON(data []byte) error {
 	if data == nil || string(data) == "null" {
@@ -116,14 +151,14 @@ func (v *contentValue) UnmarshalJSON(data []byte) error {
 	}
 
 	var str string
-	if err := json.Unmarshal(data, &str); err == nil {
+	if err := claudeJSONUnmarshal(data, &str); err == nil {
 		v.String = &str
 
 		return nil
 	}
 
 	var arr []json.RawMessage
-	if err := json.Unmarshal(data, &arr); err == nil {
+	if err := claudeJSONUnmarshal(data, &arr); err == nil {
 		v.Array = &arr
 
 		return nil
@@ -134,19 +169,24 @@ func (v *contentValue) UnmarshalJSON(data []byte) error {
 
 func (r *toolUseResult) UnmarshalJSON(data []byte) error {
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if err := claudeJSONUnmarshal(data, &raw); err != nil {
 		return err
 	}
 
-	type alias toolUseResult
-
-	var decoded alias
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return nil
-	}
-
-	*r = toolUseResult(decoded)
 	r.Raw = raw
+	claudeDecodeField(raw, "type", &r.Type)
+	claudeDecodeField(raw, "file", &r.File)
+	claudeDecodeField(raw, "content", &r.Content)
+	claudeDecodeField(raw, "stdout", &r.Stdout)
+	claudeDecodeField(raw, "stderr", &r.Stderr)
+	claudeDecodeField(raw, "result", &r.Result)
+	claudeDecodeField(raw, "codeText", &r.CodeText)
+	claudeDecodeField(raw, "filePath", &r.FilePath)
+	claudeDecodeField(raw, "originalFile", &r.OriginalFile)
+	claudeDecodeField(raw, "oldString", &r.OldString)
+	claudeDecodeField(raw, "newString", &r.NewString)
+	claudeDecodeField(raw, "structuredPatch", &r.StructuredPatch)
+	claudeDecodeField(raw, "bashEditDiff", &r.BashEditDiff)
 
 	return nil
 }
@@ -157,21 +197,21 @@ func (v *toolUseResultValue) UnmarshalJSON(data []byte) error {
 	}
 
 	var result toolUseResult
-	if err := json.Unmarshal(data, &result); err == nil {
+	if err := claudeJSONUnmarshal(data, &result); err == nil {
 		v.Object = &result
 
 		return nil
 	}
 
 	var str string
-	if err := json.Unmarshal(data, &str); err == nil {
+	if err := claudeJSONUnmarshal(data, &str); err == nil {
 		v.String = &str
 
 		return nil
 	}
 
 	var arr []json.RawMessage
-	if err := json.Unmarshal(data, &arr); err == nil {
+	if err := claudeJSONUnmarshal(data, &arr); err == nil {
 		v.Array = &contentValue{Array: &arr}
 
 		return nil
@@ -185,8 +225,8 @@ func (c *claudeMessageContentList) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	var rawItems []json.RawMessage
-	if err := json.Unmarshal(data, &rawItems); err == nil {
+	var rawItems []any
+	if err := claudeJSONUnmarshal(data, &rawItems); err == nil {
 		items := make([]claudeMessageContent, 0, len(rawItems))
 
 		for _, raw := range rawItems {
@@ -202,7 +242,7 @@ func (c *claudeMessageContentList) UnmarshalJSON(data []byte) error {
 	}
 
 	var str string
-	if err := json.Unmarshal(data, &str); err == nil {
+	if err := claudeJSONUnmarshal(data, &str); err == nil {
 		*c = claudeMessageContentList{{Type: "text", Text: str}}
 
 		return nil
@@ -211,28 +251,66 @@ func (c *claudeMessageContentList) UnmarshalJSON(data []byte) error {
 	return fmt.Errorf("unsupported message content type")
 }
 
-func parseClaudeMessageContent(raw json.RawMessage) (claudeMessageContent, bool) {
-	var str string
-	if err := json.Unmarshal(raw, &str); err == nil {
-		return claudeMessageContent{Type: "text", Text: str}, true
-	}
+func parseClaudeMessageContent(raw any) (claudeMessageContent, bool) {
+	switch value := raw.(type) {
+	case string:
+		return claudeMessageContent{Type: "text", Text: value}, true
+	case map[string]any:
+		content := claudeMessageContent{}
+		if contentType, ok := value["type"].(string); ok {
+			content.Type = contentType
+		}
 
-	var block struct {
-		Type string          `json:"type"`
-		Text json.RawMessage `json:"text"`
-	}
-	if err := json.Unmarshal(raw, &block); err != nil {
+		if text, ok := value["text"].(string); ok {
+			content.Text = text
+		}
+
+		return content, true
+	default:
 		return claudeMessageContent{}, false
 	}
+}
 
-	content := claudeMessageContent{Type: block.Type}
-
-	var text string
-	if err := json.Unmarshal(block.Text, &text); err == nil {
-		content.Text = text
+func (l *claudeLogLine) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := claudeJSONUnmarshal(data, &raw); err != nil {
+		return err
 	}
 
-	return content, true
+	claudeDecodeField(raw, "timestamp", &l.Timestamp)
+	claudeDecodeField(raw, "sessionId", &l.SessionID)
+	claudeDecodeField(raw, "version", &l.Version)
+	claudeDecodeField(raw, "toolUseResult", &l.ToolUseResult)
+	claudeDecodeField(raw, "usage", &l.Usage)
+	claudeDecodeField(raw, "message", &l.Message)
+	claudeDecodeField(raw, "isSidechain", &l.IsSideChain)
+	claudeDecodeField(raw, "promptId", &l.PromptID)
+	claudeDecodeField(raw, "type", &l.Type)
+	claudeDecodeField(raw, "cwd", &l.Cwd)
+
+	return nil
+}
+
+// claudeDecodeField decodes one optional transcript field independently. Claude
+// Code's JSONL schema evolves frequently, so a new shape for one field must not
+// discard other usable data from the same line.
+func claudeDecodeField(raw map[string]json.RawMessage, key string, value any) {
+	data, ok := raw[key]
+	if !ok {
+		return
+	}
+
+	_ = claudeJSONUnmarshal(data, value)
+}
+
+func claudeJSONUnmarshal(data []byte, v any) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("json decoder panicked: %v", r)
+		}
+	}()
+
+	return json.Unmarshal(data, v)
 }
 
 func (v *contentValue) lineChanges() int {
@@ -252,7 +330,7 @@ func (v *contentValue) lineChanges() int {
 
 	for _, item := range *v.Array {
 		var str string
-		if err := json.Unmarshal(item, &str); err == nil {
+		if err := claudeJSONUnmarshal(item, &str); err == nil {
 			lineChanges += countStringLines(str)
 
 			continue
@@ -261,7 +339,7 @@ func (v *contentValue) lineChanges() int {
 		var block struct {
 			Text *string `json:"text"`
 		}
-		if err := json.Unmarshal(item, &block); err == nil && block.Text != nil {
+		if err := claudeJSONUnmarshal(item, &block); err == nil && block.Text != nil {
 			lineChanges += countStringLines(*block.Text)
 		}
 	}
@@ -289,7 +367,9 @@ func (g Claude) Parse(ctx context.Context) (Heartbeats, error) {
 	var heartbeats Heartbeats
 
 	for _, transcript := range transcripts {
-		parsed, err := g.parseTranscript(ctx, transcript)
+		parsed, err := parseCheckpointSource(ParserConfig(g), transcript, func() (Heartbeats, error) {
+			return g.parseTranscript(ctx, transcript)
+		})
 		if err != nil {
 			logger.Warnf("failed parsing claude transcript %q: %s", transcript, err)
 			continue
@@ -302,48 +382,57 @@ func (g Claude) Parse(ctx context.Context) (Heartbeats, error) {
 }
 
 func (g Claude) transcriptPaths(ctx context.Context) ([]string, error) {
-	home, err := ini.UserHomeDir(ctx)
+	configDirs, err := claudeConfigDirs(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find user home dir: %s", err)
-	}
-
-	claudeProjectsDir := filepath.Join(home, ".claude", "projects")
-
-	info, err := os.Stat(claudeProjectsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-
-		return nil, fmt.Errorf("failed to read .claude projects directory: %s", err)
-	}
-
-	if !info.IsDir() {
-		return nil, nil
+		return nil, err
 	}
 
 	var transcripts []string
 
-	err = filepath.WalkDir(claudeProjectsDir, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	for _, dir := range configDirs {
+		claudeProjectsDir := filepath.Join(dir, "projects")
+
+		// filepath.WalkDir never descends into a root that is itself a symlink,
+		// so resolve it first: ~/.claude/projects is commonly symlinked (iCloud,
+		// Dropbox, another disk) and would otherwise silently yield no transcripts.
+		if resolved, err := filepath.EvalSymlinks(claudeProjectsDir); err == nil {
+			claudeProjectsDir = resolved
 		}
 
-		if d.IsDir() || filepath.Ext(d.Name()) != ".jsonl" {
+		info, err := os.Stat(claudeProjectsDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+
+			return nil, fmt.Errorf("failed to read claude projects directory %q: %s", claudeProjectsDir, err)
+		}
+
+		if !info.IsDir() {
+			continue
+		}
+
+		err = filepath.WalkDir(claudeProjectsDir, func(path string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+
+			if d.IsDir() || filepath.Ext(d.Name()) != ".jsonl" {
+				return nil
+			}
+
+			info, err := d.Info()
+			if err != nil || !timestampAtOrAfterCutoff(info.ModTime(), g.After) {
+				return nil
+			}
+
+			transcripts = append(transcripts, path)
+
 			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed walking claude projects directory %q: %s", claudeProjectsDir, err)
 		}
-
-		info, err := d.Info()
-		if err != nil || info.ModTime().Before(g.After) {
-			return nil
-		}
-
-		transcripts = append(transcripts, path)
-
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed walking .claude projects directory: %s", err)
 	}
 
 	return transcripts, nil
@@ -376,23 +465,109 @@ func (g Claude) subscriptionPlan(ctx context.Context) string {
 }
 
 func (Claude) configPaths(ctx context.Context) ([]string, error) {
+	configDirs, err := claudeConfigDirs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	home, err := ini.UserHomeDir(ctx)
+	if err != nil && os.Getenv("CLAUDE_CONFIG_DIR") == "" {
+		return nil, fmt.Errorf("failed to find user home dir: %s", err)
+	}
+
+	var defaultConfigDir string
+	if home != "" {
+		defaultConfigDir = filepath.Join(home, ".claude")
+	}
+
+	paths := make([]string, 0, len(configDirs))
+
+	for _, dir := range configDirs {
+		if defaultConfigDir != "" && dir == defaultConfigDir {
+			paths = append(paths, filepath.Join(home, ".claude.json"))
+		} else {
+			paths = append(paths, filepath.Join(dir, ".claude.json"))
+		}
+
+		backups, err := claudeConfigBackupPaths(dir)
+		if err != nil {
+			return nil, err
+		}
+
+		paths = append(paths, backups...)
+	}
+
+	return paths, nil
+}
+
+func claudeConfigDirs(ctx context.Context) ([]string, error) {
+	dirs, err := claudeConfiguredDirs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, home := range wslHomes(ctx) {
+		dirs = append(dirs, filepath.Join(home, ".claude"))
+	}
+
+	return dirs, nil
+}
+
+func claudeConfiguredDirs(ctx context.Context) ([]string, error) {
+	if raw := os.Getenv("CLAUDE_CONFIG_DIR"); raw != "" {
+		dirs := make([]string, 0, strings.Count(raw, ",")+1)
+		seen := make(map[string]bool)
+
+		for _, dir := range strings.Split(raw, ",") {
+			dir = strings.TrimSpace(dir)
+			if dir == "" {
+				continue
+			}
+
+			dir = filepath.Clean(dir)
+			if seen[dir] {
+				continue
+			}
+
+			seen[dir] = true
+			dirs = append(dirs, dir)
+		}
+
+		if len(dirs) > 0 {
+			return dirs, nil
+		}
+	}
+
 	home, err := ini.UserHomeDir(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find user home dir: %s", err)
 	}
 
-	paths := []string{filepath.Join(home, ".claude.json")}
+	return []string{filepath.Join(home, ".claude")}, nil
+}
 
-	backups, err := filepath.Glob(filepath.Join(home, ".claude", "backups", ".claude.json.backup.*"))
+func claudeConfigBackupPaths(configDir string) ([]string, error) {
+	backupDir := filepath.Join(configDir, "backups")
+
+	entries, err := os.ReadDir(backupDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+
 		return nil, err
 	}
 
-	for i, j := 0, len(backups)-1; i < j; i, j = i+1, j-1 {
-		backups[i], backups[j] = backups[j], backups[i]
-	}
+	var paths []string
 
-	paths = append(paths, backups...)
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), ".claude.json.backup.") {
+			continue
+		}
+
+		paths = append(paths, filepath.Join(backupDir, entry.Name()))
+	}
 
 	return paths, nil
 }
@@ -409,7 +584,7 @@ func (Claude) subscriptionPlanFromConfig(path string) (string, error) {
 	}
 
 	var config claudeConfig
-	if err := json.Unmarshal(data, &config); err != nil {
+	if err := claudeJSONUnmarshal(data, &config); err != nil {
 		return "", err
 	}
 
@@ -425,6 +600,16 @@ func (Claude) subscriptionPlanFromConfig(path string) (string, error) {
 }
 
 func (g Claude) parseTranscript(ctx context.Context, transcript string) (Heartbeats, error) {
+	return g.parseTranscriptWithPrefix(ctx, transcript, "")
+}
+
+// parseTranscriptWithPrefix parses a transcript looking up each line's cutoff
+// under sessionPrefix+sessionID. Callers that rewrite AISession afterwards
+// (like OpenClaude) must pass that same prefix so the lookup matches the
+// session id recorded in the checkpoint.
+func (g Claude) parseTranscriptWithPrefix(
+	ctx context.Context, transcript, sessionPrefix string,
+) (Heartbeats, error) {
 	logger := log.Extract(ctx)
 
 	//nolint:gosec
@@ -467,7 +652,10 @@ func (g Claude) parseTranscript(ctx context.Context, transcript string) (Heartbe
 	)
 
 	claudeVersion := ""
+	model := ""
+	complexity := ""
 	cwd := ""
+	cwdFromTranscript := false
 	ideSession := false
 	sessionID := g.sessionIDFromPath(transcript)
 	sessionEntity := appHeartbeatEntity("Claude", transcript)
@@ -483,7 +671,7 @@ func (g Claude) parseTranscript(ctx context.Context, transcript string) (Heartbe
 		}
 
 		var logLine claudeLogLine
-		if err := json.Unmarshal(line, &logLine); err != nil {
+		if err := claudeJSONUnmarshal(line, &logLine); err != nil {
 			logger.Warnf("failed parsing claude transcript line from %q: %s", transcript, err)
 			logger.Debugf("failed parsing claude transcript line: %s", line)
 
@@ -494,12 +682,18 @@ func (g Claude) parseTranscript(ctx context.Context, transcript string) (Heartbe
 			claudeVersion = logLine.Version
 		}
 
+		if logLine.Message != nil {
+			model = firstNonEmptyString(logLine.Message.Model, model)
+			complexity = firstNonEmptyString(logLine.Message.Effort, complexity)
+		}
+
 		if logLine.SessionID != "" {
 			sessionID = logLine.SessionID
 		}
 
-		if lineCwd := g.projectPath(logLine); lineCwd != "" {
+		if lineCwd := g.projectPath(logLine, !cwdFromTranscript); lineCwd != "" {
 			cwd = lineCwd
+			cwdFromTranscript = logLine.Cwd != nil && *logLine.Cwd != ""
 		}
 
 		if claudeHasIDEContext(logLine) {
@@ -508,12 +702,27 @@ func (g Claude) parseTranscript(ctx context.Context, transcript string) (Heartbe
 
 		tokens = g.claudeTokenCounts(logLine, tokens, &lastMsg)
 
-		if logLine.Timestamp.IsZero() || logLine.Timestamp.Before(g.After) {
+		if logLine.Timestamp.IsZero() {
+			continue
+		}
+
+		if !timestampAtOrAfterCutoff(logLine.Timestamp, ParserConfig(g).sessionAfter(sessionPrefix+sessionID)) {
 			tokens = g.advanceTokens(tokens)
 			continue
 		}
 
-		parsed := g.claudeHeartbeats(logLine, sessionEntity, sessionID, claudeVersion, cwd, ideSession, tokens)
+		parsed := g.claudeHeartbeats(
+			logLine,
+			sessionEntity,
+			sessionID,
+			claudeVersion,
+			model,
+			complexity,
+			cwd,
+			cwdFromTranscript,
+			ideSession,
+			tokens,
+		)
 		if len(parsed) == 0 {
 			if g.shouldAdvanceTokensForNoopToolResult(logLine.ToolUseResult) {
 				tokens = g.advanceTokens(tokens)
@@ -531,7 +740,7 @@ func (g Claude) parseTranscript(ctx context.Context, transcript string) (Heartbe
 		return nil, fmt.Errorf("failed reading claude transcript %q: %s", transcript, err)
 	}
 
-	return heartbeats, nil
+	return translateWSLHeartbeats(transcript, heartbeats), nil
 }
 
 func claudeNormalizeSubscriptionPlan(value string) string {
@@ -585,8 +794,13 @@ func (g Claude) claudeTokenCounts(
 
 	current := previous
 
-	if line.Usage.InputTokens != nil {
-		current.CurrentInput = int64(*line.Usage.InputTokens)
+	if line.Usage.InputTokens != nil || line.Usage.CacheCreationInputTokens != nil {
+		current.CurrentInput = claudeTokenValue(line.Usage.InputTokens) +
+			claudeTokenValue(line.Usage.CacheCreationInputTokens)
+	}
+
+	if line.Usage.CacheReadInputTokens != nil {
+		current.CurrentCachedInput = claudeTokenValue(line.Usage.CacheReadInputTokens)
 	}
 
 	switch {
@@ -607,19 +821,8 @@ func (Claude) messageTokenCounts(
 	usage := msg.Usage
 	current := previous
 
-	inputTokens := int64(0)
-
-	if usage.InputTokens != nil {
-		inputTokens = int64(*usage.InputTokens)
-
-		if usage.CacheCreationInputTokens != nil {
-			inputTokens += int64(*usage.CacheCreationInputTokens)
-		}
-
-		if usage.CacheReadInputTokens != nil {
-			inputTokens += int64(*usage.CacheReadInputTokens)
-		}
-	}
+	inputTokens := claudeTokenValue(usage.InputTokens) + claudeTokenValue(usage.CacheCreationInputTokens)
+	cachedInputTokens := claudeTokenValue(usage.CacheReadInputTokens)
 
 	outputTokens := int64(0)
 
@@ -633,18 +836,29 @@ func (Claude) messageTokenCounts(
 	if msg.ID != "" && msg.ID == lastMsg.ID {
 		// Same message (streaming update): replace previous contribution with latest.
 		current.CurrentInput += inputTokens - lastMsg.InputTokens
+		current.CurrentCachedInput += cachedInputTokens - lastMsg.CachedInputTokens
 		current.CurrentOutput += outputTokens - lastMsg.OutputTokens
 	} else {
 		// New message: accumulate onto the running total.
 		current.CurrentInput += inputTokens
+		current.CurrentCachedInput += cachedInputTokens
 		current.CurrentOutput += outputTokens
 	}
 
 	lastMsg.ID = msg.ID
 	lastMsg.InputTokens = inputTokens
+	lastMsg.CachedInputTokens = cachedInputTokens
 	lastMsg.OutputTokens = outputTokens
 
 	return current
+}
+
+func claudeTokenValue(value *int) int64 {
+	if value == nil || *value < 0 {
+		return 0
+	}
+
+	return int64(*value)
 }
 
 func (g Claude) claudeHeartbeats(
@@ -652,7 +866,10 @@ func (g Claude) claudeHeartbeats(
 	sessionEntity string,
 	sessionID string,
 	version string,
+	model string,
+	complexity string,
 	cwd string,
+	cwdFromTranscript bool,
 	ideSession bool,
 	tokens heartbeat.AITokens,
 ) Heartbeats {
@@ -666,6 +883,8 @@ func (g Claude) claudeHeartbeats(
 		sessionEntity,
 		sessionID,
 		version,
+		model,
+		complexity,
 		cwd,
 		ideSession,
 		appTokens,
@@ -679,10 +898,48 @@ func (g Claude) claudeHeartbeats(
 		logLine,
 		sessionID,
 		version,
+		model,
+		complexity,
+		cwd,
+		cwdFromTranscript,
 		ideSession,
 		fileTokens,
 	); heartbeat != nil {
 		heartbeats = append(heartbeats, *heartbeat)
+		fileTokens = nil
+	}
+
+	if logLine.ToolUseResult == nil || logLine.ToolUseResult.Object == nil {
+		return heartbeats
+	}
+
+	diff := logLine.ToolUseResult.Object.BashEditDiff
+	if diff == nil {
+		return heartbeats
+	}
+
+	for _, file := range diff.Files {
+		if file.FilePath == "" || len(file.Hunks) == 0 || isClaudeTaskOutputFilePath(file.FilePath) {
+			continue
+		}
+
+		projectPathOverride := ""
+		if cwdFromTranscript {
+			projectPathOverride = cwd
+		}
+
+		heartbeats = append(heartbeats, g.newHeartbeat(
+			heartbeat.PointerTo(claudePatchLineChanges(file.Hunks)),
+			sessionID,
+			fileTokens,
+			file.FilePath,
+			heartbeat.FileType,
+			heartbeat.PointerTo(true),
+			projectPathOverride,
+			heartbeatTimestamp(logLine.Timestamp),
+			g.userAgent(file.FilePath, version, model, complexity, ideSession),
+		))
+		fileTokens = nil
 	}
 
 	return heartbeats
@@ -693,6 +950,8 @@ func (g Claude) claudeAppHeartbeat(
 	sessionEntity string,
 	sessionID string,
 	version string,
+	model string,
+	complexity string,
 	cwd string,
 	ideSession bool,
 	tokens *heartbeat.AITokens,
@@ -712,8 +971,8 @@ func (g Claude) claudeAppHeartbeat(
 		heartbeat.AppType,
 		heartbeat.PointerTo(false),
 		cwd,
-		float64(logLine.Timestamp.Unix()),
-		g.userAgent(sessionEntity, version, ideSession),
+		heartbeatTimestamp(logLine.Timestamp),
+		g.userAgent(sessionEntity, version, model, complexity, ideSession),
 	)
 	h.AIPromptLength = promptLength
 
@@ -724,6 +983,10 @@ func (g Claude) claudeFileHeartbeat(
 	logLine claudeLogLine,
 	sessionID string,
 	version string,
+	model string,
+	complexity string,
+	cwd string,
+	cwdFromTranscript bool,
 	ideSession bool,
 	tokens *heartbeat.AITokens,
 ) *heartbeat.Heartbeat {
@@ -736,8 +999,17 @@ func (g Claude) claudeFileHeartbeat(
 		return nil
 	}
 
+	if isClaudeTaskOutputFilePath(filePath) {
+		return nil
+	}
+
 	lineChanges := g.lineChanges(*logLine.ToolUseResult.Object)
 	isWrite := g.isWrite(*logLine.ToolUseResult.Object)
+
+	projectPathOverride := ""
+	if cwdFromTranscript {
+		projectPathOverride = cwd
+	}
 
 	h := g.newHeartbeat(
 		heartbeat.PointerTo(lineChanges),
@@ -746,30 +1018,33 @@ func (g Claude) claudeFileHeartbeat(
 		filePath,
 		heartbeat.FileType,
 		heartbeat.PointerTo(isWrite),
-		"",
-		float64(logLine.Timestamp.Unix()),
-		g.userAgent(filePath, version, ideSession),
+		projectPathOverride,
+		heartbeatTimestamp(logLine.Timestamp),
+		g.userAgent(filePath, version, model, complexity, ideSession),
 	)
+
+	h.IsUnsavedEntity = logLine.ToolUseResult.Object.Type != nil && *logLine.ToolUseResult.Object.Type == "delete"
 
 	return &h
 }
 
-func (g Claude) userAgent(entity string, version string, ideSession bool) string {
-	plugin := claudePlugin(version)
+func (g Claude) userAgent(entity string, version string, model string, complexity string, ideSession bool) string {
+	modelToken := aiModelUserAgentToken(model, complexity)
+	cli := "claude-code/" + unknownIfEmpty(version)
 
-	if !ideSession && len(g.UserAgents) > 0 {
-		return plugin
+	if !ideSession {
+		// Foreground apps and file heartbeats do not establish IDE membership.
+		// Only the native caller's plugin chain belongs to a standalone session.
+		caller := userAgentProduct(firstUserAgentToken(g.FallbackUserAgent))
+		if strings.EqualFold(caller, userAgentProduct(cli)) {
+			return userAgentWithPrependedAgent(g.FallbackUserAgent, modelToken)
+		}
+
+		return strings.TrimSpace(modelToken + " " + cli)
 	}
 
-	return aiUserAgent(entity, g.UserAgents, g.FallbackUserAgent, plugin)
-}
-
-func claudePlugin(version string) string {
-	if version == "" {
-		return "ClaudeCode"
-	}
-
-	return "ClaudeCode/" + version
+	return aiUserAgentWithModelAndEditor(
+		entity, g.UserAgents, g.FallbackUserAgent, model, complexity, cli)
 }
 
 func (Claude) tokenDelta(tokens heartbeat.AITokens) (int64, int64) {
@@ -788,11 +1063,14 @@ func (Claude) tokenDelta(tokens heartbeat.AITokens) (int64, int64) {
 
 func (g Claude) hasTokenDelta(tokens heartbeat.AITokens) bool {
 	input, output := g.tokenDelta(tokens)
-	return input > 0 || output > 0
+	cachedInput := tokens.CurrentCachedInput - tokens.LastCachedInput
+
+	return input > 0 || cachedInput > 0 || output > 0
 }
 
 func (Claude) advanceTokens(tokens heartbeat.AITokens) heartbeat.AITokens {
 	tokens.LastInput = tokens.CurrentInput
+	tokens.LastCachedInput = tokens.CurrentCachedInput
 	tokens.LastOutput = tokens.CurrentOutput
 
 	return tokens
@@ -885,9 +1163,13 @@ func (Claude) getFilePath(result toolUseResult) string {
 	return ""
 }
 
-func (g Claude) projectPath(logLine claudeLogLine) string {
+func (g Claude) projectPath(logLine claudeLogLine, fallbackToFilePath bool) string {
 	if logLine.Cwd != nil && *logLine.Cwd != "" {
 		return *logLine.Cwd
+	}
+
+	if !fallbackToFilePath {
+		return ""
 	}
 
 	result := logLine.ToolUseResult
@@ -897,21 +1179,43 @@ func (g Claude) projectPath(logLine claudeLogLine) string {
 	}
 
 	filePath := g.getFilePath(*result.Object)
+	if filePath == "" && result.Object.BashEditDiff != nil {
+		for _, file := range result.Object.BashEditDiff.Files {
+			if file.FilePath != "" && !isClaudeTaskOutputFilePath(file.FilePath) {
+				filePath = file.FilePath
+				break
+			}
+		}
+	}
+
 	if filePath == "" {
+		return ""
+	}
+
+	if isClaudeTaskOutputFilePath(filePath) {
 		return ""
 	}
 
 	return filepath.Dir(filePath)
 }
 
+// isClaudeTaskOutputFilePath reports whether path points at a Claude Code
+// sub-agent task output artifact under /tmp/claude-<uid>/.../tasks/*.output.
+func isClaudeTaskOutputFilePath(path string) bool {
+	if path == "" {
+		return false
+	}
+
+	// Normalize backslashes from Windows-style paths so the pattern matches
+	// regardless of the host OS the CLI is running on.
+	normalized := strings.ReplaceAll(filepath.ToSlash(path), `\`, "/")
+
+	return claudeTaskOutputPathPattern.MatchString(normalized)
+}
+
 func (Claude) lineChanges(result toolUseResult) int {
 	if result.StructuredPatch != nil && len(*result.StructuredPatch) > 0 {
-		lineChanges := 0
-		for _, patch := range *result.StructuredPatch {
-			lineChanges += patch.NewLines - patch.OldLines
-		}
-
-		return lineChanges
+		return claudePatchLineChanges(*result.StructuredPatch)
 	}
 
 	if result.NewString != nil {
@@ -938,6 +1242,15 @@ func (Claude) lineChanges(result toolUseResult) int {
 	// Don't count File.Content as line changes.
 
 	return 0
+}
+
+func claudePatchLineChanges(patches []structuredPatch) int {
+	lineChanges := 0
+	for _, patch := range patches {
+		lineChanges += patch.NewLines - patch.OldLines
+	}
+
+	return lineChanges
 }
 
 func (Claude) isWrite(result toolUseResult) bool {

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/wakatime/wakatime-cli/pkg/output"
+	"github.com/hackclub/hackatime-cli/pkg/output"
 )
 
 type (
@@ -102,7 +102,7 @@ func RenderToday(goal *Goal, out output.Output) (string, error) {
 		return "", errors.New("no chart data found for the current day")
 	}
 
-	if out == output.RawJSONOutput {
+	if out == output.RawJSONOutput || out == output.JSONOutput {
 		data, err := json.Marshal(goal)
 		if err != nil {
 			return "", fmt.Errorf("failed to marshal json goal: %s", err)

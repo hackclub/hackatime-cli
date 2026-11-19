@@ -7,15 +7,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/cmd/offlinesync"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/params"
+	"github.com/hackclub/hackatime-cli/cmd/offlinesync"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/params"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -113,7 +114,7 @@ func TestRunWithRateLimiting(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, exitcode.Success, code)
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
 func TestRunWithoutRateLimiting(t *testing.T) {
@@ -206,7 +207,27 @@ func TestRunWithoutRateLimiting(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, exitcode.Success, code)
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
+}
+
+func TestRunWithoutRateLimiting_Disabled(t *testing.T) {
+	v := viper.New()
+	v.Set("disable-offline", true)
+
+	code, err := offlinesync.RunWithoutRateLimiting(t.Context(), v)
+
+	require.NoError(t, err)
+	assert.Equal(t, exitcode.Success, code)
+}
+
+func TestRunWithRateLimiting_Disabled(t *testing.T) {
+	v := viper.New()
+	v.Set("disable-offline", true)
+
+	code, err := offlinesync.RunWithRateLimiting(t.Context(), v)
+
+	require.NoError(t, err)
+	assert.Equal(t, exitcode.Success, code)
 }
 
 func TestRunWithRateLimiting_RateLimited(t *testing.T) {
@@ -221,6 +242,65 @@ func TestRunWithRateLimiting_RateLimited(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, exitcode.Success, code)
+}
+
+func TestRunWithoutRateLimiting_QueueFilepathError(t *testing.T) {
+	v := viper.New()
+	v.Set("offline-queue-file", "~missing-user/wakatime.bdb")
+
+	code, err := offlinesync.RunWithoutRateLimiting(t.Context(), v)
+
+	require.Error(t, err)
+	assert.Equal(t, exitcode.ErrGeneric, code)
+	assert.Contains(t, err.Error(), "offline sync failed: failed to load offline queue filepath")
+}
+
+func TestRunWithoutRateLimiting_APIParamsError(t *testing.T) {
+	resetSingleton(t)
+	t.Setenv("WAKATIME_API_KEY", "")
+
+	queueFile, err := os.CreateTemp(t.TempDir(), "offline-queue")
+	require.NoError(t, err)
+	require.NoError(t, queueFile.Close())
+
+	v := viper.New()
+	v.Set("offline-queue-file", queueFile.Name())
+
+	code, err := offlinesync.RunWithoutRateLimiting(t.Context(), v)
+
+	require.Error(t, err)
+	assert.Equal(t, exitcode.ErrAuth, code)
+	assert.Contains(t, err.Error(), "offline sync failed: failed to load API parameters")
+}
+
+func TestRunWithoutRateLimiting_CorruptDBReturnsWakaExitCode(t *testing.T) {
+	resetSingleton(t)
+
+	queueFilepath := filepath.Join(t.TempDir(), "offline_heartbeats.bdb")
+	require.NoError(t, os.WriteFile(queueFilepath, []byte("not a bolt db"), 0600))
+
+	v := viper.New()
+	v.Set("api-url", "http://127.0.0.1:1")
+	v.Set("key", "00000000-0000-4000-8000-000000000000")
+	v.Set("offline-queue-file", queueFilepath)
+
+	code, err := offlinesync.RunWithoutRateLimiting(t.Context(), v)
+
+	require.Error(t, err)
+	assert.Equal(t, exitcode.Success, code)
+	assert.Contains(t, err.Error(), "offline sync failed")
+	assert.Contains(t, err.Error(), "moved corrupt db file")
+	assert.NoFileExists(t, queueFilepath)
+}
+
+func TestSyncOfflineActivity_APIParamsError(t *testing.T) {
+	resetSingleton(t)
+	t.Setenv("WAKATIME_API_KEY", "")
+
+	err := offlinesync.SyncOfflineActivity(t.Context(), viper.New(), filepath.Join(t.TempDir(), "queue.bdb"))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load API parameters")
 }
 
 func TestSyncOfflineActivity(t *testing.T) {
@@ -311,7 +391,7 @@ func TestSyncOfflineActivity(t *testing.T) {
 	err = offlinesync.SyncOfflineActivity(t.Context(), v, f.Name())
 	require.NoError(t, err)
 
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
 func TestSyncOfflineActivity_MultipleApiKey(t *testing.T) {
@@ -403,7 +483,7 @@ func TestSyncOfflineActivity_MultipleApiKey(t *testing.T) {
 	err = offlinesync.SyncOfflineActivity(t.Context(), v, f.Name())
 	require.NoError(t, err)
 
-	assert.Eventually(t, func() bool { return numCalls == 1 }, time.Second, 50*time.Millisecond)
+	assert.Equal(t, 1, numCalls)
 }
 
 func TestSyncOfflineActivity_MultipleAPIURLs(t *testing.T) {
@@ -542,13 +622,13 @@ func TestSyncOfflineActivity_MultipleAPIURLs(t *testing.T) {
 	err = offlinesync.SyncOfflineActivity(t.Context(), v, f.Name())
 	require.NoError(t, err)
 
-	// Verify both servers received calls
-	assert.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
+	mu.Lock()
+	defaultCalls := defaultServerCalls
+	customCalls := customServerCalls
+	mu.Unlock()
 
-		return defaultServerCalls >= 1 && customServerCalls >= 1
-	}, time.Second, 50*time.Millisecond)
+	assert.GreaterOrEqual(t, defaultCalls, 1)
+	assert.GreaterOrEqual(t, customCalls, 1)
 }
 
 func setupTestServer() (string, *http.ServeMux, func()) {

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 )
 
 // FilterConfig contains project filtering configurations.
