@@ -3,7 +3,7 @@ package exitcode_test
 import (
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
 
 	"github.com/stretchr/testify/assert"
 )

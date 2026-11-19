@@ -6,10 +6,10 @@ import (
 	"log"
 	"os"
 
-	"github.com/wakatime/wakatime-cli/pkg/api"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
+	"github.com/hackclub/hackatime-cli/pkg/api"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -26,8 +26,8 @@ func NewRootCMD() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "wakatime-cli",
-		Short: "Command line interface used by all WakaTime text editor plugins.",
+		Use:   "hackatime-cli",
+		Short: "Command line interface used by Hackatime editor plugins.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := RunE(cmd, v); err != nil {
 				var errexitcode exitcode.Err
@@ -60,13 +60,14 @@ func setFlags(cmd *cobra.Command, v *viper.Viper) {
 	flags.String(
 		"api-url",
 		"",
-		"API base url used when sending heartbeats and fetching code stats. Defaults to https://api.wakatime.com/api/v1/.",
+		"API base url used when sending heartbeats and fetching code stats. Defaults to"+
+			" https://hackatime.hackclub.com/api/hackatime/v1.",
 	)
 	flags.String(
 		"apiurl",
 		"",
 		"(deprecated) API base url used when sending heartbeats and fetching code stats. Defaults to"+
-			" https://api.wakatime.com/api/v1/.",
+			" https://hackatime.hackclub.com/api/hackatime/v1.",
 	)
 	flags.String(
 		"category",
@@ -298,14 +299,14 @@ func setFlags(cmd *cobra.Command, v *viper.Viper) {
 		"today-goal",
 		"",
 		"Prints time for the given goal id today, then exits"+
-			" Visit wakatime.com/api/v1/users/current/goals to find your goal id.")
+			" Visit <api-url>/users/current/goals to find your goal id.")
 	flags.Bool(
 		"user-agent",
 		false,
-		"(internal) Prints the wakatime-cli useragent, as it will be sent to the api, then exits.",
+		"(internal) Prints the hackatime-cli useragent, as it will be sent to the api, then exits.",
 	)
 	flags.Bool("verbose", false, "Turns on debug messages in log file, and sends diagnostics if a crash occurs.")
-	flags.Bool("version", false, "Prints the wakatime-cli version number, then exits.")
+	flags.Bool("version", false, "Prints the hackatime-cli version number, then exits.")
 	flags.Bool("write", false, "When set, tells api this heartbeat was triggered from writing to a file.")
 
 	// hide deprecated flags
@@ -334,6 +335,6 @@ func setFlags(cmd *cobra.Command, v *viper.Viper) {
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := NewRootCMD().Execute(); err != nil {
-		log.Fatalf("failed to run wakatime-cli: %s", err)
+		log.Fatalf("failed to run hackatime-cli: %s", err)
 	}
 }

@@ -15,16 +15,16 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/hackclub/hackatime-cli/pkg/api"
+	"github.com/hackclub/hackatime-cli/pkg/diagnostic"
+	"github.com/hackclub/hackatime-cli/pkg/file"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/params"
+	"github.com/hackclub/hackatime-cli/pkg/regex"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 	"github.com/spf13/viper"
-	"github.com/wakatime/wakatime-cli/pkg/api"
-	"github.com/wakatime/wakatime-cli/pkg/diagnostic"
-	"github.com/wakatime/wakatime-cli/pkg/file"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/params"
-	"github.com/wakatime/wakatime-cli/pkg/regex"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
 )
 
 // Config contains filtering configurations.
@@ -187,7 +187,7 @@ func WithAISync(config Config) heartbeat.HandleOption {
 			lock, err := AcquireSyncLock(ctx, config.V, SyncLockTimeout)
 			if err != nil {
 				if IsSyncLockBusy(err) {
-					logger.Debugln("skipping ai sync because another wakatime-cli process is already syncing ai activity")
+					logger.Debugln("skipping ai sync because another hackatime-cli process is already syncing ai activity")
 				} else {
 					logger.Warnf("skipping ai sync because failed to acquire ai sync lock: %s", err)
 				}

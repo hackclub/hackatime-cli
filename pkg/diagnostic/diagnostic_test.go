@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/diagnostic"
+	"github.com/hackclub/hackatime-cli/pkg/diagnostic"
 
 	"github.com/stretchr/testify/assert"
 )

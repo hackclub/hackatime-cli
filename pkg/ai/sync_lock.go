@@ -8,16 +8,16 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/hackclub/hackatime-cli/pkg/ini"
 	"github.com/juju/mutex"
 	"github.com/spf13/viper"
-	"github.com/wakatime/wakatime-cli/pkg/ini"
 )
 
 const (
 	syncLockNamePrefix = "wakatime-ai-sync"
 
 	// SyncLockTimeout is intentionally short so editor-triggered heartbeats do
-	// not stall when another wakatime-cli process is already syncing AI logs.
+	// not stall when another hackatime-cli process is already syncing AI logs.
 	SyncLockTimeout = 100 * time.Millisecond
 )
 

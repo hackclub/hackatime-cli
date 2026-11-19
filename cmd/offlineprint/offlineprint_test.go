@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/cmd/offlineprint"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/cmd/offlineprint"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"

@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hackclub/hackatime-cli/pkg/file"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/log"
 	"github.com/mitchellh/go-homedir"
-	"github.com/wakatime/wakatime-cli/pkg/file"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/log"
 
 	"github.com/kevinburke/ssh_config"
 	"github.com/pkg/sftp"

@@ -26,69 +26,16 @@ func doAndClose(t *testing.T, client *Client, req *http.Request) error {
 	return err
 }
 
-func TestClientDoDNSFallback(t *testing.T) {
-	req, err := http.NewRequest(http.MethodGet, BaseURL+"/users/current", nil)
-	require.NoError(t, err)
-
-	var calls int
-
-	client := &Client{
-		baseURL: BaseURL,
-		doFunc: func(_ *Client, req *http.Request) (*http.Response, error) {
-			calls++
-			if calls == 1 {
-				return nil, &net.DNSError{Err: "no such host", Name: "api.wakatime.com"}
-			}
-
-			assert.Contains(t, []string{BaseIPAddrv4, BaseIPAddrv6}, req.URL.Host)
-
-			return &http.Response{
-				StatusCode: http.StatusAccepted,
-				Body:       io.NopCloser(strings.NewReader("")),
-			}, nil
-		},
-	}
-
-	resp, err := client.Do(t.Context(), req)
-	require.NoError(t, err)
-
-	defer resp.Body.Close()
-
-	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
-	assert.Equal(t, 2, calls)
-}
-
-func TestClientDoDNSFallbackRetryError(t *testing.T) {
-	req, err := http.NewRequest(http.MethodGet, BaseURL+"/users/current", nil)
-	require.NoError(t, err)
-
-	var calls int
-
-	client := &Client{
-		baseURL: BaseURL,
-		doFunc: func(_ *Client, _ *http.Request) (*http.Response, error) {
-			calls++
-			if calls == 1 {
-				return nil, &net.DNSError{Err: "no such host", Name: "api.wakatime.com"}
-			}
-
-			return nil, errors.New("retry failed")
-		},
-	}
-
-	err = doAndClose(t, client, req)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "retry request failed: retry failed")
-	assert.Equal(t, 2, calls)
-}
-
 func TestClientDoDoesNotFallback(t *testing.T) {
 	dnsErr := &net.DNSError{Err: "no such host", Name: "custom.example.com"}
 	tests := map[string]struct {
 		BaseURL string
 		Err     error
 	}{
+		"default base url": {
+			BaseURL: BaseURL,
+			Err:     &net.DNSError{Err: "no such host", Name: "hackatime.hackclub.com"},
+		},
 		"custom base url": {
 			BaseURL: "https://custom.example.com/api",
 			Err:     dnsErr,
@@ -175,11 +122,6 @@ func TestTLSOptions(t *testing.T) {
 	transport = client.client.Transport.(*http.Transport)
 	require.NotNil(t, transport.TLSClientConfig)
 	assert.Same(t, pool, transport.TLSClientConfig.RootCAs)
-
-	transport = NewTransportWithHostVerificationDisabled(t.Context())
-	require.NotNil(t, transport.TLSClientConfig)
-	assert.Equal(t, serverName, transport.TLSClientConfig.ServerName)
-	assert.NotNil(t, transport.TLSClientConfig.RootCAs)
 }
 
 func TestWithSSLCertFile(t *testing.T) {

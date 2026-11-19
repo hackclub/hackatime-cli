@@ -3,9 +3,9 @@ package deps_test
 import (
 	"testing"
 
+	"github.com/hackclub/hackatime-cli/pkg/deps"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wakatime/wakatime-cli/pkg/deps"
 )
 
 func TestParserCPP_Parse(t *testing.T) {

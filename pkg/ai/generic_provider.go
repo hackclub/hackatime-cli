@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wakatime/wakatime-cli/pkg/ini"
+	"github.com/hackclub/hackatime-cli/pkg/ini"
 )
 
 type genericAIPaths struct {

@@ -42,11 +42,11 @@ func main() {
 	chromaLexers := lexers.GlobalLexerRegistry.Lexers
 
 	// Maps to store forward and reverse mappings
-	stringToLanguage := make(map[string]string)     // normalized string -> Language constant
-	chromaToLanguage := make(map[string]string)     // normalized chroma name -> Language constant
-	languageToString := make(map[string]string)     // Language constant -> string constant
-	languageToChroma := make(map[string]string)     // Language constant -> raw chroma name (for StringChroma())
-	newLanguages := make(map[string]*languageInfo)  // New languages to be added
+	stringToLanguage := make(map[string]string)    // normalized string -> Language constant
+	chromaToLanguage := make(map[string]string)    // normalized chroma name -> Language constant
+	languageToString := make(map[string]string)    // Language constant -> string constant
+	languageToChroma := make(map[string]string)    // Language constant -> raw chroma name (for StringChroma())
+	newLanguages := make(map[string]*languageInfo) // New languages to be added
 
 	// First, populate from existing languages (only those with valid string constants)
 	for langConst, info := range existingLanguages {

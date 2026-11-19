@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
+	heartbeatpkg "github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	offlinepkg "github.com/hackclub/hackatime-cli/pkg/offline"
+	paramspkg "github.com/hackclub/hackatime-cli/pkg/params"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	heartbeatpkg "github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	offlinepkg "github.com/wakatime/wakatime-cli/pkg/offline"
-	paramspkg "github.com/wakatime/wakatime-cli/pkg/params"
 )
 
 func TestLoadParamsInternalBranches(t *testing.T) {

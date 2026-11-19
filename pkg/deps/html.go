@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/wakatime/wakatime-cli/pkg/file"
+	"github.com/hackclub/hackatime-cli/pkg/file"
 
 	"golang.org/x/net/html"
 )
