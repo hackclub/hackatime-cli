@@ -257,13 +257,19 @@ func WithAISync(config Config) heartbeat.HandleOption {
 				return next(ctx, hh)
 			}
 
-			minAIHeartbeatTime, maxAIHeartbeatTime := minMaxAIHeartbeatTimes(heartbeats)
-			heartbeats, firstHumanEdit := preserveHumanAttributes(heartbeats, hh, config, maxAIHeartbeatTime)
+			// Scope AI activity before preserveHumanAttributes lends the active
+			// editor's project folder to AI events that never named one.
+			scopes := newScopeResolver()
+			activity := scopedAIActivity(heartbeats, scopes)
+
+			_, maxAIHeartbeatTime = minMaxAIHeartbeatTimes(heartbeats)
+			heartbeats, _ = preserveHumanAttributes(heartbeats, hh, config, maxAIHeartbeatTime)
 
 			entities := entityToTimeMap(heartbeats)
+			humanScopes := scopedHumanHeartbeats(hh, scopes)
 
 			// Add back Human heartbeats unless they look like duplicate AI heartbeats
-			for _, h := range hh {
+			for i, h := range hh {
 				excluded, err := exclusions.excludes(ctx, h)
 				if err != nil {
 					return nil, err
@@ -274,21 +280,31 @@ func WithAISync(config Config) heartbeat.HandleOption {
 					continue
 				}
 
+				// Only AI activity in the same project as this heartbeat counts.
+				window, hasWindow := activity.windowFor(humanScopes[i])
+
+				var firstHumanEdit *float64
+				if hasWindow {
+					firstHumanEdit = firstRelatedHumanEdit(hh, humanScopes, humanScopes[i].scope, window.max)
+				}
+
 				if sameEntityAIHeartbeatWithinWindow(h, entities, 5) && (firstHumanEdit == nil || h.Time < *firstHumanEdit) {
 					continue
 				}
 
-				inRange := func(windowMinutes float64) bool {
-					const secondsPerMinute = 60.0
+				if hasWindow {
+					inRange := func(windowMinutes float64) bool {
+						const secondsPerMinute = 60.0
 
-					windowSeconds := windowMinutes * secondsPerMinute
+						windowSeconds := windowMinutes * secondsPerMinute
 
-					return h.Time > minAIHeartbeatTime-windowSeconds && h.Time < maxAIHeartbeatTime+windowSeconds
-				}
+						return h.Time > window.min-windowSeconds && h.Time < window.max+windowSeconds
+					}
 
-				if (inRange(2) && (h.HumanLineChanges == nil || *h.HumanLineChanges == 0)) ||
-					((firstHumanEdit == nil || h.Time < *firstHumanEdit) && inRange(30)) {
-					h.Category = "ai coding"
+					if (inRange(2) && (h.HumanLineChanges == nil || *h.HumanLineChanges == 0)) ||
+						((firstHumanEdit == nil || h.Time < *firstHumanEdit) && inRange(30)) {
+						h.Category = "ai coding"
+					}
 				}
 
 				// add back this human heartbeat
