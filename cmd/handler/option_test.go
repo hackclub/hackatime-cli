@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/cmd/handler"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/params"
+	"github.com/hackclub/hackatime-cli/cmd/handler"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/params"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

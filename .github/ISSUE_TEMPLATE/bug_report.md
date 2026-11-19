@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a bug to help us improve WakaTime CLI
+about: Report a bug to help us improve Hackatime CLI
 title: ''
 labels: bug
 assignees: ''
@@ -22,5 +22,5 @@ If there's no error message, enable debug mode and reproduce the bug to trigger 
 Don't post backoff error messages.
 If your error message contains "won't send heartbeat due to backoff", delete your `~/.wakatime/wakatime-internal.cfg` file to trigger an API connection so we can see the real error message.
 
-More info: https://github.com/wakatime/wakatime-cli/blob/develop/TROUBLESHOOTING.md
+More info: https://github.com/hackclub/hackatime-cli/blob/develop/TROUBLESHOOTING.md
 -->

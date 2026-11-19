@@ -9,10 +9,10 @@ import (
 	"github.com/gandarez/go-realpath"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/log/setup"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 	"github.com/stretchr/testify/require"
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/log/setup"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
 )
 
 func TestObfuscateProjectName(t *testing.T) {

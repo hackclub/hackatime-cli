@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/hackclub/hackatime-cli/pkg/system"
 	"github.com/stretchr/testify/assert"
-	"github.com/wakatime/wakatime-cli/pkg/system"
 )
 
 func TestOSName(t *testing.T) {

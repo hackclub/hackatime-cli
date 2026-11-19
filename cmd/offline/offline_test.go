@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	cmdheartbeat "github.com/wakatime/wakatime-cli/cmd/heartbeat"
-	cmdoffline "github.com/wakatime/wakatime-cli/cmd/offline"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
-	"github.com/wakatime/wakatime-cli/pkg/params"
+	cmdheartbeat "github.com/hackclub/hackatime-cli/cmd/heartbeat"
+	cmdoffline "github.com/hackclub/hackatime-cli/cmd/offline"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
+	"github.com/hackclub/hackatime-cli/pkg/params"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"

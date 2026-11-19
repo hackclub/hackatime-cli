@@ -3,7 +3,7 @@ package api_test
 import (
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/api"
+	"github.com/hackclub/hackatime-cli/pkg/api"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

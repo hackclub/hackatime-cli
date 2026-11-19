@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
 )
 
 func TestPatchHeartbeats_DeletedFiles(t *testing.T) {

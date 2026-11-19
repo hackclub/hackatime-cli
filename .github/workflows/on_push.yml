@@ -204,26 +204,6 @@ jobs:
         name: Unit tests
         run: make test-shell-script
 
-  ip-check:
-    name: IP Check
-    runs-on: ubuntu-latest
-    steps:
-      -
-        name: Checkout
-        uses: actions/checkout@v4
-      -
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: ${{ env.GO_VERSION_FILE }}
-          check-latest: ${{ env.CHECK_LATEST }}
-          cache: false
-      -
-        name: Pull dependencies
-        run: make install-go-modules
-      -
-        name: IP Check
-        run: make test-ip
-
   version:
     name: Version
     concurrency: tagging
@@ -236,8 +216,7 @@ jobs:
       test-integration-windows,
       test-macos,
       test-integration-macos,
-      test-shell-script,
-      ip-check]
+      test-shell-script]
     outputs:
       semver_tag: ${{ steps.semver-tag.outputs.semver_tag }}
       ancestor_tag: ${{ steps.semver-tag.outputs.ancestor_tag }}
@@ -570,6 +549,10 @@ jobs:
     name: Sign Apple binaries
     needs: [version, build-darwin]
     runs-on: macos-latest
+    env:
+      # Signing and notarization only run when the repository has Apple credentials.
+      # Without them the darwin binaries are released unsigned.
+      HAS_SIGNING_CREDENTIALS: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 != '' }}
     steps:
       -
         name: Checkout
@@ -583,6 +566,7 @@ jobs:
           path: build/
       -
         name: Import Code-Signing Certificates
+        if: ${{ env.HAS_SIGNING_CREDENTIALS == 'true' }}
         uses: Apple-Actions/import-codesign-certs@v3
         with:
           # The certificates in a PKCS12 file encoded as a base64 string
@@ -591,11 +575,15 @@ jobs:
           p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
       -
         name: Codesign
+        if: ${{ env.HAS_SIGNING_CREDENTIALS == 'true' }}
+        env:
+          SIGNING_IDENTITY: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         run: |
-          codesign -v --force --timestamp -s "Developer ID Application: WAKATIME, LLC" --options runtime ./build/wakatime-cli-darwin-amd64
-          codesign -v --force --timestamp -s "Developer ID Application: WAKATIME, LLC" --options runtime ./build/wakatime-cli-darwin-arm64
+          codesign -v --force --timestamp -s "$SIGNING_IDENTITY" --options runtime ./build/hackatime-cli-darwin-amd64
+          codesign -v --force --timestamp -s "$SIGNING_IDENTITY" --options runtime ./build/hackatime-cli-darwin-arm64
       -
         name: Store Credentials
+        if: ${{ env.HAS_SIGNING_CREDENTIALS == 'true' }}
         env:
           NOTARIZATION_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           NOTARIZATION_APPLE_ID: ${{ secrets.AC_USERNAME }}
@@ -603,14 +591,16 @@ jobs:
         run: xcrun notarytool store-credentials "notarytool-profile" --apple-id "$NOTARIZATION_APPLE_ID" --team-id "$NOTARIZATION_TEAM_ID" --password "$NOTARIZATION_PWD"
       -
         name: Notarize amd64
+        if: ${{ env.HAS_SIGNING_CREDENTIALS == 'true' }}
         run: |
-          ditto -c -k --keepParent ./build/wakatime-cli-darwin-amd64 ./wakatime-cli-darwin-amd64.zip
-          xcrun notarytool submit ./wakatime-cli-darwin-amd64.zip --keychain-profile "notarytool-profile" --wait
+          ditto -c -k --keepParent ./build/hackatime-cli-darwin-amd64 ./hackatime-cli-darwin-amd64.zip
+          xcrun notarytool submit ./hackatime-cli-darwin-amd64.zip --keychain-profile "notarytool-profile" --wait
       -
         name: Notarize arm64
+        if: ${{ env.HAS_SIGNING_CREDENTIALS == 'true' }}
         run: |
-          ditto -c -k --keepParent ./build/wakatime-cli-darwin-arm64 ./wakatime-cli-darwin-arm64.zip
-          xcrun notarytool submit ./wakatime-cli-darwin-arm64.zip --keychain-profile "notarytool-profile" --wait
+          ditto -c -k --keepParent ./build/hackatime-cli-darwin-arm64 ./hackatime-cli-darwin-arm64.zip
+          xcrun notarytool submit ./hackatime-cli-darwin-arm64.zip --keychain-profile "notarytool-profile" --wait
       -
         name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -633,6 +623,8 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    env:
+      HAS_SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK != '' }}
     needs: [
       version,
       build-android,
@@ -716,20 +708,20 @@ jobs:
       -
         name: "Slack notification"
         uses: 8398a7/action-slack@v3
-        if: ${{ success() }}
+        if: ${{ success() && env.HAS_SLACK_WEBHOOK == 'true' }}
         with:
           status: custom
           fields: message
           custom_payload: |
             {
-              username: 'WakaTime Bot',
+              username: 'Hackatime Bot',
               icon_emoji: ':mega:',
               blocks: [
                 {
                   type: 'section',
                   text: {
                     type: 'mrkdwn',
-                    text: `New <https://github.com/wakatime/wakatime-cli|wakatime-cli> version <https://github.com/wakatime/wakatime-cli/releases/tag/${{ needs.version.outputs.semver_tag }}|${{ needs.version.outputs.semver_tag }}> released`
+                    text: `New <https://github.com/hackclub/hackatime-cli|hackatime-cli> version <https://github.com/hackclub/hackatime-cli/releases/tag/${{ needs.version.outputs.semver_tag }}|${{ needs.version.outputs.semver_tag }}> released`
                   }
                 },
                 {

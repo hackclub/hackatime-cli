@@ -3,8 +3,8 @@ package ai
 import (
 	"testing"
 
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
 	"github.com/stretchr/testify/assert"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
 )
 
 func TestAIUserAgentWithModelAndEditorPreservesConfiguredEditor(t *testing.T) {

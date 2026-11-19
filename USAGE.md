@@ -1,12 +1,12 @@
 # Usage
 
-Options can be passed to wakatime-cli via command line, or set in the INI config file described below.
+Options can be passed to hackatime-cli via command line, or set in the INI config file described below.
 Command line arguments take precedence over config file settings.
-Run `wakatime-cli --help` for available command line options.
+Run `hackatime-cli --help` for available command line options.
 
 ## Config File
 
-wakatime-cli selects one main config file in this order:
+hackatime-cli selects one main config file in this order:
 
 1. The path passed with `--config`.
 2. `$WAKATIME_HOME/.wakatime.cfg` when `WAKATIME_HOME` is set to a valid, non-empty path.
@@ -29,7 +29,7 @@ You can add to the selected config file with these available options:
 debug = false
 api_key = your-api-key
 api_key_vault_cmd = command arg arg ... (space-separated, no shell syntax)
-api_url = https://api.wakatime.com/api/v1
+api_url = https://hackatime.hackclub.com/api/hackatime/v1
 hide_file_names = false
 hide_project_names = false
 hide_branch_names = false
@@ -104,9 +104,9 @@ Notice how you have to include the exclude patterns from your main `~/.wakatime.
 | option                         | description                                                                                                                                                                                                                                                            | type          | default value                     |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | --------------------------------- |
 | debug                          | Turns on debug messages in log file.                                                                                                                                                                                                                                   | _bool_        | `false`                           |
-| api_key                        | Your wakatime api key.                                                                                                                                                                                                                                                 | _string_      |                                   |
+| api_key                        | Your Hackatime api key.                                                                                                                                                                                                                                                 | _string_      |                                   |
 | api_key_vault_cmd              | A command to get your api key, perhaps from some sort of secure vault. Actually a space-separated list of an executable and its arguments. Executables in PATH can be referred to by their basenames. Shell syntax not supported.                                      | _string_      |                                   |
-| api_url                        | The WakaTime API base url.                                                                                                                                                                                                                                             | _string_      | <https://api.wakatime.com/api/v1> |
+| api_url                        | The Hackatime API base url.                                                                                                                                                                                                                                            | _string_      | <https://hackatime.hackclub.com/api/hackatime/v1> |
 | heartbeat_rate_limit_seconds   | Rate limit sending heartbeats to the API once per duration. Set to 0 to disable rate limiting.                                                                                                                                                                         | _int_         | `120`                             |
 | hide_file_names                | Obfuscate filenames. Will not send file names to api.                                                                                                                                                                                                                  | _bool_;_list_ | `false`                           |
 | hide_project_names             | Obfuscate project names. When a project folder is detected instead of using the folder name as the project, a `.wakatime-project file` is created with a random project name.                                                                                          | _bool_;_list_ | `false`                           |
@@ -186,7 +186,7 @@ The format is: `pattern = api_url|api_key`
 
 **Behavior:**
 
-- If `api_key` is set, heartbeats are **always** sent to `api_url` (default WakaTime API), **and also** to any matching `api_urls` patterns
+- If `api_key` is set, heartbeats are **always** sent to `api_url` (default Hackatime API), **and also** to any matching `api_urls` patterns
 - If the same `api_url` + `api_key` combination exists in both the default settings and `api_urls`, the heartbeat is only sent once (deduplicated)
 - All matching patterns receive heartbeats, not just the first match
 
@@ -201,14 +201,14 @@ The format is: `pattern = api_url|api_key`
 
 With this configuration:
 
-- Files in `/home/user/work/` are sent to both the default WakaTime API (if `api_key` is set) AND `work.example.com`
-- Files in `/home/user/personal/` are sent to both the default WakaTime API (if `api_key` is set) AND `personal.example.com`
+- Files in `/home/user/work/` are sent to both the default Hackatime API (if `api_key` is set) AND `work.example.com`
+- Files in `/home/user/personal/` are sent to both the default Hackatime API (if `api_key` is set) AND `personal.example.com`
 - When no api_url or no api_key are present(`.* = `), the default api_key and api_url are used
 - ⁠Files not matching the work or personal regex patterns are sent to both the default api url and your-backup-server.com (duplicated/tee'd)
 
 ### Api Key Environment Variable
 
-If a `WAKATIME_API_KEY` env var exists, wakatime-cli will use its value as the api key.
+If a `WAKATIME_API_KEY` env var exists, hackatime-cli will use its value as the api key.
 This means you don’t need a `~/.wakatime.cfg` file, or you can omit or leave empty the `api_key` setting in your config file if using the env var.
 However, if an api key exists in your `~/.wakatime.cfg` file then it takes precedence over the env var.
 
@@ -244,7 +244,7 @@ The priority of projects detection is:
 
 4. IDE project
 
-See the [source code](https://github.com/wakatime/wakatime-cli/blob/36f6372880d7113382e99453c2b94ff727788ae2/pkg/project/project.go#L145) for specifics.
+See the [source code](https://github.com/hackclub/hackatime-cli/blob/36f6372880d7113382e99453c2b94ff727788ae2/pkg/project/project.go#L145) for specifics.
 
 ### WakaTime Project File
 
@@ -270,7 +270,7 @@ This is useful when you want to organize projects under a common namespace (like
 
 ## Internal INI Config File
 
-The plugins and wakatime-cli use a separate internal INI file for things like caching auto-update requests to the GitHub releases API, and exponential backoff to the WakaTime API.
+The plugins and hackatime-cli use a separate internal INI file for things like caching auto-update requests to the GitHub releases API, and exponential backoff to the WakaTime API.
 The default internal INI config file location is `$WAKATIME_HOME/.wakatime/wakatime-internal.cfg`.
 
 [plugins]: https://wakatime.com/plugins

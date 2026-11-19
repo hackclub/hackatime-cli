@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/log"
-	"github.com/wakatime/wakatime-cli/pkg/regex"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/log"
+	"github.com/hackclub/hackatime-cli/pkg/regex"
 )
 
 type (
@@ -52,7 +52,7 @@ type (
 // and api url for a heartbeat following the provided configurations.
 //
 // The behavior is:
-//  1. Always send to api_url (default WakaTime) with api_key (or project_api_key if matched)
+//  1. Always send to api_url (default Hackatime) with api_key (or project_api_key if matched)
 //  2. Also send to ALL matching api_urls patterns
 //  3. Use a hash map of api_url|api_key to deduplicate destinations
 func WithReplacing(config Config) heartbeat.HandleOption {

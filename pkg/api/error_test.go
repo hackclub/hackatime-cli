@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/api"
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/api"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap/zapcore"
@@ -36,7 +36,7 @@ func TestErrors(t *testing.T) {
 			Err:              api.ErrAuth{Err: errors.New("unauthorized")},
 			ExpectedError:    "unauthorized",
 			ExpectedExitCode: exitcode.ErrAuth,
-			ExpectedMessage:  "invalid api key... find yours at wakatime.com/api-key. unauthorized",
+			ExpectedMessage:  "invalid api key... find yours at hackatime.hackclub.com/api-key. unauthorized",
 			ExpectedLogError: true,
 		},
 		"bad request": {

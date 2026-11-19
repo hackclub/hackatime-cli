@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/file"
+	"github.com/hackclub/hackatime-cli/pkg/file"
 
-	"github.com/wakatime/wakatime-cli/pkg/deps"
+	"github.com/hackclub/hackatime-cli/pkg/deps"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

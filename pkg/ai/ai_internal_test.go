@@ -12,10 +12,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/hackclub/hackatime-cli/pkg/log"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wakatime/wakatime-cli/pkg/log"
 )
 
 type panicParser struct{}

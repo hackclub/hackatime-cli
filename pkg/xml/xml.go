@@ -3,7 +3,7 @@ package xml
 import (
 	"regexp"
 
-	"github.com/wakatime/wakatime-cli/pkg/doctype"
+	"github.com/hackclub/hackatime-cli/pkg/doctype"
 
 	"github.com/dlclark/regexp2"
 )

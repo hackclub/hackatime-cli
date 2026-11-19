@@ -1,12 +1,12 @@
 .DEFAULT_GOAL := build
 
 # globals
-BINARY_NAME?=wakatime-cli
+BINARY_NAME?=hackatime-cli
 BUILD_DIR?="./build"
 CGO_ENABLED?=0
 COMMIT?=$(shell git rev-parse --short HEAD)
 DATE?=$(shell date -u '+%Y-%m-%dT%H:%M:%S %Z')
-REPO=github.com/wakatime/wakatime-cli
+REPO=github.com/hackclub/hackatime-cli
 VERSION?=<local-build>
 
 # ld flags for go build
@@ -167,12 +167,9 @@ test:
 test-integration:
 	go test -race -tags=integration ./main_test.go
 
-.PHONY: test-ip
-test-ip:
-	go test -race -tags=ip ./ip_test.go
 
 .PHONY: test-shell-script
 test-shell-script:
 	bats ./bin/tests
 
-test-all: lint test test-integration test-shell-script test-ip
+test-all: lint test test-integration test-shell-script

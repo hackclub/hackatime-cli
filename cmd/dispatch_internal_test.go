@@ -11,11 +11,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wakatime/wakatime-cli/pkg/exitcode"
-	"github.com/wakatime/wakatime-cli/pkg/heartbeat"
-	"github.com/wakatime/wakatime-cli/pkg/offline"
-	"github.com/wakatime/wakatime-cli/pkg/version"
-	"github.com/wakatime/wakatime-cli/pkg/vipertools"
+	"github.com/hackclub/hackatime-cli/pkg/exitcode"
+	"github.com/hackclub/hackatime-cli/pkg/heartbeat"
+	"github.com/hackclub/hackatime-cli/pkg/offline"
+	"github.com/hackclub/hackatime-cli/pkg/version"
+	"github.com/hackclub/hackatime-cli/pkg/vipertools"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -27,8 +27,8 @@ import (
 func TestNewRootCMD(t *testing.T) {
 	command := NewRootCMD()
 
-	assert.Equal(t, "wakatime-cli", command.Use)
-	assert.Equal(t, "Command line interface used by all WakaTime text editor plugins.", command.Short)
+	assert.Equal(t, "hackatime-cli", command.Use)
+	assert.Equal(t, "Command line interface used by Hackatime editor plugins.", command.Short)
 	require.NotNil(t, command.RunE)
 
 	require.NotNil(t, command.Flags().Lookup("entity"))
@@ -348,7 +348,7 @@ func TestRunVersionVerbose(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, exitcode.Success, code)
 	assert.Equal(t,
-		"wakatime-cli\n"+
+		"hackatime-cli\n"+
 			"  Version: 1.2.3\n"+
 			"  Commit: abcdef\n"+
 			"  Built: 2026-06-24\n"+
@@ -371,7 +371,7 @@ func newRunEViper(t *testing.T) *viper.Viper {
 }
 
 func newRunECommand() *cobra.Command {
-	command := &cobra.Command{Use: "wakatime-cli"}
+	command := &cobra.Command{Use: "hackatime-cli"}
 	command.SetOut(io.Discard)
 	command.SetErr(io.Discard)
 
